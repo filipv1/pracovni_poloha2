@@ -1,0 +1,29 @@
+TRUNK ANALYSIS REPORT
+==================================================
+
+Vstupní soubor: ../test3.mp4
+Výstupní soubor: data/output/analyzed_MVI_8745.MP4
+
+Video informace:
+  Rozlišení: 1920x1080
+  FPS: 25.0
+  Délka: 20.1s
+  Celkem snímků: 503
+
+Zpracování:
+  Zpracované snímky: 503
+  Neúspěšné detekce: 0
+  Úspěšnost: 100.0%
+
+Analýza ohnutí:
+  Snímky s ohnutím >60°: 378
+  Procento ohnutí: 75.15%
+  Průměrný úhel: 66.73°
+  Maximální úhel: 92.67°
+  Minimální úhel: 22.70°
+  Směrodatná odchylka: 14.91°
+
+Konfigurace:
+  Práh ohnutí: 60.0°
+  Model complexity: 1
+  Min detection confidence: 0.5
