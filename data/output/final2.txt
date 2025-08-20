@@ -1,0 +1,29 @@
+TRUNK ANALYSIS REPORT
+==================================================
+
+Vstupní soubor: C:\Users\vaclavik\test4\pracovni_poloha2\MVI_8745.MP4
+Výstupní soubor: C:\Users\vaclavik\test4\pracovni_poloha2\data\output\final2.mp4
+
+Video informace:
+  Rozlišení: 1920x1080
+  FPS: 25.0
+  Délka: 118.6s
+  Celkem snímků: 2964
+
+Zpracování:
+  Zpracované snímky: 2945
+  Neúspěšné detekce: 19
+  Úspěšnost: 99.4%
+
+Analýza ohnutí:
+  Snímky s ohnutím >60°: 873
+  Procento ohnutí: 29.64%
+  Průměrný úhel: 39.04°
+  Maximální úhel: 111.61°
+  Minimální úhel: 0.64°
+  Směrodatná odchylka: 28.73°
+
+Konfigurace:
+  Práh ohnutí: 60.0°
+  Model complexity: 1
+  Min detection confidence: 0.5

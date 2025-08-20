@@ -9,6 +9,7 @@ from .video_processor import VideoInputHandler, VideoOutputHandler
 from .pose_detector import PoseDetector, PoseResults
 from .angle_calculator import TrunkAngleCalculator, TrunkBendAnalyzer
 from .visualizer import SkeletonVisualizer, AngleDisplay
+from .csv_exporter import TrunkAngleCSVExporter, create_csv_path_from_video_path
 
 
 class TrunkAnalysisProcessor:
@@ -20,7 +21,8 @@ class TrunkAnalysisProcessor:
                  model_complexity: int = 1,
                  min_detection_confidence: float = 0.5,
                  bend_threshold: float = 60.0,
-                 smoothing_window: int = 5):
+                 smoothing_window: int = 5,
+                 export_csv: bool = False):
         """
         Inicializace procesoru
         
@@ -31,10 +33,12 @@ class TrunkAnalysisProcessor:
             min_detection_confidence: Minimální confidence pro detekci
             bend_threshold: Práh pro detekci ohnutí ve stupních
             smoothing_window: Velikost okna pro temporal smoothing
+            export_csv: Zda exportovat data do CSV souboru
         """
         self.input_path = input_path
         self.output_path = output_path
         self.bend_threshold = bend_threshold
+        self.export_csv = export_csv
         
         # Validace vstupního souboru
         if not os.path.exists(input_path):
@@ -74,8 +78,17 @@ class TrunkAnalysisProcessor:
             'bend_frames': 0
         }
         
+        # CSV Exporter inicializace
+        self.csv_exporter = None
+        if self.export_csv:
+            csv_path = create_csv_path_from_video_path(output_path)
+            self.csv_exporter = TrunkAngleCSVExporter(csv_path, self.video_info['fps'])
+            self.logger = logging.getLogger('TrunkAnalyzer')
+            self.logger.info(f"CSV export povolen: {csv_path}")
+        
         # Logging setup
-        self.logger = self._setup_logger()
+        if not hasattr(self, 'logger'):
+            self.logger = self._setup_logger()
     
     def process_video(self, show_progress: bool = True) -> Dict:
         """
@@ -134,6 +147,13 @@ class TrunkAnalysisProcessor:
             print("] DOKONCENO!", flush=True)
             
             self.output_handler.finalize()
+            
+            # Finalizace CSV exportu
+            if self.csv_exporter is not None:
+                self.csv_exporter.finalize()
+                csv_stats = self.csv_exporter.get_export_statistics()
+                self.logger.info(f"CSV export dokončen: {csv_stats['exported_records']} záznamů")
+            
             self.logger.info("Zpracování dokončeno")
         
         # Generování finálního reportu
@@ -154,6 +174,7 @@ class TrunkAnalysisProcessor:
             Zpracovaný snímek s vizualizací
         """
         processed_frame = frame.copy()
+        trunk_angle = None  # Inicializace pro CSV export
         
         # Pose detection
         pose_results = self.pose_detector.detect_pose(frame)
@@ -198,6 +219,10 @@ class TrunkAnalysisProcessor:
             self.processing_stats['failed_detections'] += 1
             self.logger.debug(f"Frame {frame_number}: Pose detection selhala")
             processed_frame = self._add_error_visualization(processed_frame, frame_number)
+        
+        # CSV export dat - vždy exportujeme, trunk_angle může být None
+        if self.csv_exporter is not None:
+            self.csv_exporter.export_frame_data(frame_number, trunk_angle)
         
         return processed_frame
     
@@ -361,6 +386,8 @@ class TrunkAnalysisProcessor:
     
     def __del__(self):
         """Cleanup při destrukci objektu"""
+        if hasattr(self, 'csv_exporter') and self.csv_exporter is not None:
+            self.csv_exporter.finalize()
         if hasattr(self, 'input_handler'):
             del self.input_handler
         if hasattr(self, 'output_handler'):

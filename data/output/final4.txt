@@ -1,0 +1,29 @@
+TRUNK ANALYSIS REPORT
+==================================================
+
+Vstupní soubor: C:\Users\vaclavik\Videos\input_video.mp4
+Výstupní soubor: C:\Users\vaclavik\test4\pracovni_poloha2\data\output\final4.mp4
+
+Video informace:
+  Rozlišení: 1280x720
+  FPS: 25.0
+  Délka: 16.2s
+  Celkem snímků: 405
+
+Zpracování:
+  Zpracované snímky: 405
+  Neúspěšné detekce: 0
+  Úspěšnost: 100.0%
+
+Analýza ohnutí:
+  Snímky s ohnutím >60°: 176
+  Procento ohnutí: 43.46%
+  Průměrný úhel: 52.49°
+  Maximální úhel: 78.04°
+  Minimální úhel: 10.52°
+  Směrodatná odchylka: 18.57°
+
+Konfigurace:
+  Práh ohnutí: 60.0°
+  Model complexity: 1
+  Min detection confidence: 0.5

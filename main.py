@@ -31,6 +31,7 @@ Priklady pouziti:
   %(prog)s input.mp4 output.mp4
   %(prog)s video.mp4 result.mp4 --model-complexity 2 --threshold 45
   %(prog)s input.mp4 output.mp4 --confidence 0.7 --smoothing 10
+  %(prog)s input.mp4 output.mp4 --csv-export
         """
     )
     
@@ -88,6 +89,12 @@ Priklady pouziti:
         '--verbose', '-v',
         action='store_true',
         help='Verbose output (detailni logovani)'
+    )
+    
+    parser.add_argument(
+        '--csv-export',
+        action='store_true',
+        help='Export dat do CSV souboru (frame,úhel_trupu)'
     )
     
     parser.add_argument(
@@ -181,6 +188,7 @@ def print_configuration(args):
     print(f"  Detection confidence: {args.min_detection_confidence}")
     print(f"  Angle threshold: {args.angle_threshold}°")
     print(f"  Smoothing window: {args.smoothing_window}")
+    print(f"  CSV export: {'Povolen' if args.csv_export else 'Vypnut'}")
     print("-" * 50)
 
 
@@ -206,7 +214,8 @@ def main():
             model_complexity=args.model_complexity,
             min_detection_confidence=args.min_detection_confidence,
             bend_threshold=args.angle_threshold,
-            smoothing_window=args.smoothing_window
+            smoothing_window=args.smoothing_window,
+            export_csv=args.csv_export
         )
         
         # Spuštění analýzy
@@ -220,6 +229,11 @@ def main():
         report_path = Path(args.output).with_suffix('.txt')
         save_report(results, report_path)
         print(f"Report uložen: {report_path}")
+        
+        # Informace o CSV exportu
+        if args.csv_export:
+            csv_path = Path(args.output).with_suffix('.csv')
+            print(f"CSV data exportována: {csv_path}")
         
     except KeyboardInterrupt:
         print("\nAnalýza přerušena uživatelem", file=sys.stderr)
