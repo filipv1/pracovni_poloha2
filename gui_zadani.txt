@@ -1,0 +1,24 @@
+Nyní potřebuji k této aplikaci vytvořit jednoduché gui jako webovou aplikaci. Musí to být moderně vypadající a aesthetically pleasing, a mít super ux zážitek. Tuto aplikaci totiž budu prezentovat ostatním uživatelům, takže potřebuji udělat co nejlepší první dojem.
+Co to má umět?
+Bude tam základní flask login, kde bude jméno a heslo, budu mít k dispozici whitelist a ten budu spravovat.
+Bude tam základní logování, klidně do txt souboru jen o tom, kdo se přihlásil, kdy a jaký soubor nahrál.
+Poté hlavní stránka aplikace bude obsahovat možnost na výběr soubor nebo drag and drop.
+Na této stránce si uživatel bude moct vybrat z checkboxů, co chce analyzovat. Trup bude jediný available, poté tam bude šedě krk, PHK,LHK,DKK, Ostatní části těla - ať to vypadá, že tam tyto funkcionality budou v budoucnu, ikdyž tam nyní nejsou, tudíž bude funkční jen jeden checkbox.
+Jakmile se bude video nahrávat, tak tam bude nějaká vizualizace toho, jako progress bar nebo něco podobného, ať uživatel ví, že se to nahrává a má dobrý uživatelský zážitek. Nezapomeň, ux a aesthetics a moderní look na první dojem je velice důležitý při této implementaci.
+Jakmile bude video nahrané a začne se zpracovávat, tak tak bude progress bar zpracoávání, nebo jiná varianta toho, aŤ uživatel ví, že se to zpracovává a jak je to daleko.
+Jakmile se zpracovávání dokončí, tak uživatel si bude moct stáhnout mp4 video s mediapipe kostrou a zároveň xlsx podle vzoru.
+Video, které bude uživatel nahrávat, tak může mít klidně až 5gb, tak při výrobě architektury s tímto počítej.
+Další požadovaná funkcionalita je to, aby uživatel mohl nahrát a dát zpracovat více mp4 souborů najednou a ke každému z nich poté samozřejmě dostane příslušné mediapipe mp4 videa a příslušný excel. Výsledné soubory budou pojmenované podle vstupních souborů.
+Aplikace musí podporovat i ostatní video formáty než jen mp4.
+Rozumíš mému zadání? Pokud máš jakékoliv dotazy k porozumění, tak se zeptej. Pokud ne, tak si nejdřív vytvoř detailní plán, proveď komplexní research toho, jak toto implementovat do Flasku, případně jiné knihovny. Nastuduj si nejnovější dokumentace, časté problémy s implementací a všechny relevantní závislosti ať už z online dokumentací, nebo z tohoto codebase, ať tomu rozumíš. Ultrathink. Jakmile budeš mít vše nastudováno, tak vytvoř detailní plán krok za krokem, task list a .md soubor s implementačním plánem, kde napíšeš všechny relevantní informace ohledně této implementace pro budoucí claude code instance, kdybychom to třeba nestihli dokončit. Nezapomeň, že aby ti tato implementace zde fungovalo, tak musíš používat conda activate trunk_analysis, kde je nainstalovaný mediapipe, protože mediapipe je podporovaný pouze ve starší python verzi. Jakmile budeš mít implementaci této gui, aesthetically pleasing, ux super hotovou, tak jí detailně end to end, komplexně otestuj na videu test.mp4, které máš k dispozici. Otestuj všechny potřebné funkcionality jako upload, download, multiple upload, výsledné soubory atd... Pokud narazíš na nějakou chybu při svém testování tak ji oprav tak, ať máme plnohodnotnou funkční aplikaci bez kompromisů, nedělej žádné provizorní řešení. Nezapomeň, že při psaní testů, tak nesmíš používat diakritiku, protože windows konzole bude mít jinak problémy s encodingem. Ultrathink.
+Aplikace bude mít možnost switche dark modu a light modu.
+Pipeline, který nyní v aplikaci funguje přes cli je následující:
+1. python main.py "vstup.mp4" "vystup.mp4" --model-complexity 2 --csv-export
+Tento krok č. 1 vytvoř mp4 soubor a csv soubor s daty, které se poté dají zpracovat do excelu
+2. python analyze_ergonomics.py "vystup.csv" "nazevexcelu.xlsx"
+Tento krok č. 2 vezme csv soubor a podle skriptu z něj vytvoří příslušný xlsx soubor.
+Tento pipeline je to, co chci zautomatizovat tím způsobem, že uživatel pouze vybere, co chce měřit, nahraje soubor/soubory, stiskne "spusit" a celý tento příslušný pipeline s parametry se provede bez problému. Ultrathink.
+Design musí být minimalistický, aesthetically pleasing, dobře viditelný i na málo svítících monitorech. Upload box uprostřed bude dominanta celé stránky. Design také bude obsahovat nějaký whitespace, nesmí to být "přeplácané". Invokni si research agenta, design agenta, a flask spa agenta, případně i jiné agenty, kteří rozumí mediapipe, tomuto kódu, závislostem a podobně.
+Znovu podotýkám, že aplikace se musí spustit v conda activate trunk_analysis, jinak to nebude fungovat kvůli python verzi. Výsledek bude takový, že vytvoříš python soubor, který já spustím přes konzoli a bude fungovat kompletní spa aplikace s celou logikou tohoto codebase. Tato aplikace bude fungovat i na render.com
+Vytvoř maximálně detailní, krok za krokem plán a task list. Ultrathink.
+
