@@ -218,6 +218,14 @@ def main():
             export_csv=args.csv_export
         )
         
+        # Zobrazení informací o videu
+        video_info = processor.get_video_info()
+        print("\nInformace o videu:")
+        print(f"  Délka: {video_info['duration']:.2f} sekund")
+        print(f"  Počet snímků: {video_info['frame_count']}")
+        print(f"  FPS: {video_info['fps']:.2f}")
+        print("-" * 50)
+        
         # Spuštění analýzy
         print("Spouštím analýzu...")
         results = processor.process_video(show_progress=not args.no_progress)

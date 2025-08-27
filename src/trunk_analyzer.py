@@ -45,7 +45,9 @@ class TrunkAnalysisProcessor:
             raise FileNotFoundError(f"Vstupní soubor neexistuje: {input_path}")
         
         # Vytvoření výstupního adresáře pokud neexistuje
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        output_dir = os.path.dirname(output_path)
+        if output_dir:  # Pouze pokud existuje cesta k adresáři
+            os.makedirs(output_dir, exist_ok=True)
         
         # Inicializace komponent
         self.input_handler = VideoInputHandler(input_path)
@@ -60,6 +62,7 @@ class TrunkAnalysisProcessor:
         
         # Získání video info
         self.video_info = self.input_handler.get_frame_info()
+        self.video_info['duration'] = self.video_info['frame_count'] / self.video_info['fps']
         
         # Inicializace output handleru
         self.output_handler = VideoOutputHandler(
@@ -89,6 +92,15 @@ class TrunkAnalysisProcessor:
         # Logging setup
         if not hasattr(self, 'logger'):
             self.logger = self._setup_logger()
+    
+    def get_video_info(self) -> Dict:
+        """
+        Vrátí informace o videu
+        
+        Returns:
+            Dictionary s informacemi o videu
+        """
+        return self.video_info
     
     def process_video(self, show_progress: bool = True) -> Dict:
         """

@@ -59,7 +59,7 @@ class TrunkAngleCalculator:
             
             # Temporal smoothing
             if smooth:
-                angle = self.angle_smoother.smooth_angle(angle)
+                angle = self.angle_smoother.smooth_angle(angle, 'trunk')
             
             return angle
             
@@ -230,40 +230,47 @@ class AngleSmoothing:
             window_size: Velikost okna pro průměrování
         """
         self.window_size = window_size
-        self.angle_history = deque(maxlen=window_size)
+        self.angle_histories = {}  # Slovník pro různé úhly
     
-    def smooth_angle(self, new_angle: float) -> float:
+    def smooth_angle(self, new_angle: float, angle_type: str = 'default') -> float:
         """
         Aplikuje temporal smoothing na nový úhel
         
         Args:
             new_angle: Nový úhel k vyhlazení
+            angle_type: Typ úhlu (např. 'trunk', 'left_arm', 'right_arm')
             
         Returns:
             Vyhlazený úhel
         """
+        # Inicializace historie pro nový typ úhlu
+        if angle_type not in self.angle_histories:
+            self.angle_histories[angle_type] = deque(maxlen=self.window_size)
+        
+        angle_history = self.angle_histories[angle_type]
+        
         # Outlier detection - pokud je úhel příliš odlišný, nepoužijeme ho
-        if len(self.angle_history) > 0:
-            recent_mean = np.mean(list(self.angle_history))
+        if len(angle_history) > 0:
+            recent_mean = np.mean(list(angle_history))
             if abs(new_angle - recent_mean) > 30:  # Threshold pro outlier
                 # Použijeme předchozí průměr místo outlier hodnoty
                 new_angle = recent_mean
         
-        self.angle_history.append(new_angle)
+        angle_history.append(new_angle)
         
         # Vážený průměr - novější hodnoty mají větší váhu
-        if len(self.angle_history) == 1:
+        if len(angle_history) == 1:
             return new_angle
         
-        weights = np.linspace(0.5, 1.0, len(self.angle_history))
-        weighted_sum = np.sum(np.array(list(self.angle_history)) * weights)
+        weights = np.linspace(0.5, 1.0, len(angle_history))
+        weighted_sum = np.sum(np.array(list(angle_history)) * weights)
         weight_sum = np.sum(weights)
         
         return weighted_sum / weight_sum
     
     def reset(self):
         """Reset historie úhlů"""
-        self.angle_history.clear()
+        self.angle_histories.clear()
 
 
 class TrunkBendAnalyzer:
