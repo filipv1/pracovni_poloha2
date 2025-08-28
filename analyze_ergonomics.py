@@ -48,8 +48,10 @@ class ErgonomicAnalyzer:
         }
         
         self.data = []  # List[dict] s frame, angle, time
+        self.all_data = []  # Všechna data včetně FALSE hodnot
         self.static_stats = {}
         self.dynamic_stats = {}
+        self.missing_periods = []  # Úseky chybějících detekcí
         
     def load_csv_data(self) -> bool:
         """
@@ -71,20 +73,36 @@ class ErgonomicAnalyzer:
                 for row in reader:
                     frame_num = int(row['frame'])
                     angle_str = row['úhel_trupu']
+                    time_sec = frame_num / self.video_fps
                     
                     # Zpracování hodnot (může být "FALSE" pro nedetekované)
                     if angle_str != "FALSE":
                         angle = float(angle_str)
-                        time_sec = frame_num / self.video_fps
                         
+                        # Platná data pro analýzu
                         self.data.append({
                             'frame': frame_num,
                             'angle': angle,
                             'time': time_sec
                         })
-                    # FALSE hodnoty ignorujeme pro tuto analýzu
+                        
+                        # Všechna data
+                        self.all_data.append({
+                            'frame': frame_num,
+                            'angle': angle,
+                            'time': time_sec,
+                            'detected': True
+                        })
+                    else:
+                        # FALSE hodnoty - chybějící detekce
+                        self.all_data.append({
+                            'frame': frame_num,
+                            'angle': None,
+                            'time': time_sec,
+                            'detected': False
+                        })
             
-            print(f"Nacteno {len(self.data)} platnych zaznamu")
+            print(f"Nacteno {len(self.data)} platnych zaznamu z celkem {len(self.all_data)} framu")
             return True
             
         except Exception as e:
@@ -230,6 +248,45 @@ class ErgonomicAnalyzer:
         
         return len(risky_minutes)
     
+    def analyze_missing_periods(self):
+        """Analyzuje úseky chybějících detekcí"""
+        print("Analyzujem chybejici detekce...")
+        
+        if not self.all_data:
+            return
+        
+        self.missing_periods = []
+        current_start = None
+        current_end = None
+        
+        for record in self.all_data:
+            if not record['detected']:
+                # Chybějící detekce
+                if current_start is None:
+                    # Začátek nového úseku
+                    current_start = record['time']
+                current_end = record['time']  # Neustále aktualizujeme konec
+            else:
+                # Platná detekce - ukončujeme missing period pokud existoval
+                if current_start is not None:
+                    self.missing_periods.append({
+                        'start_sec': current_start,
+                        'end_sec': current_end,
+                        'duration_sec': current_end - current_start + (1.0 / self.video_fps)
+                    })
+                    current_start = None
+                    current_end = None
+        
+        # Pokud video končí missing period
+        if current_start is not None:
+            self.missing_periods.append({
+                'start_sec': current_start,
+                'end_sec': current_end,
+                'duration_sec': current_end - current_start + (1.0 / self.video_fps)
+            })
+        
+        print(f"Nalezeno {len(self.missing_periods)} useku chybejicich detekci")
+    
     def calculate_dynamic_analysis(self):
         """Vypočítá dynamickou analýzu - seskupování rizikových období"""
         print("Pocitam dynamickou analyzu (rizikova obdobi)...")
@@ -298,6 +355,22 @@ class ErgonomicAnalyzer:
         
         for category, risky_minutes in self.dynamic_stats.items():
             print(f"{category:<40} {risky_minutes:<15}")
+        
+        # Chybějící záznamy
+        print("\n3. CHYBEJICI ZAZNAMY:")
+        print("-" * 50)
+        if self.missing_periods:
+            print(f"{'Zacatek (s)':<12} {'Konec (s)':<12} {'Delka (s)':<12}")
+            print("-" * 36)
+            for period in self.missing_periods:
+                print(f"{period['start_sec']:<12.1f} {period['end_sec']:<12.1f} {period['duration_sec']:<12.1f}")
+            
+            total_missing = sum(p['duration_sec'] for p in self.missing_periods)
+            print("-" * 36)
+            print(f"Celkem useku: {len(self.missing_periods)}")
+            print(f"Celkovy cas chybejicich detekci: {total_missing:.1f}s")
+        else:
+            print("Zadne chybejici detekce nenalezeny")
     
     def create_excel_report(self, output_path: str):
         """
@@ -364,8 +437,45 @@ class ErgonomicAnalyzer:
         
         row += 2
         
-        # 2. DYNAMICKÁ ANALÝZA
-        ws[f'A{row}'] = "2. DYNAMICKÁ ANALÝZA"
+        # 2. CHYBĚJÍCÍ ZÁZNAMY
+        ws[f'A{row}'] = "2. CHYBĚJÍCÍ ZÁZNAMY (NEDETEKOVANÉ ÚSEKY)"
+        ws[f'A{row}'].font = Font(bold=True, size=12)
+        row += 1
+        
+        if self.missing_periods:
+            # Hlavičky tabulky
+            headers = ['Začátek (s)', 'Konec (s)', 'Délka trvání (s)']
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=row, column=col, value=header)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.border = border
+                cell.alignment = Alignment(horizontal='center')
+            row += 1
+            
+            # Data chybějících období
+            for period in self.missing_periods:
+                ws.cell(row=row, column=1, value=round(period['start_sec'], 1)).border = border
+                ws.cell(row=row, column=2, value=round(period['end_sec'], 1)).border = border
+                ws.cell(row=row, column=3, value=round(period['duration_sec'], 1)).border = border
+                row += 1
+            
+            # Souhrn
+            row += 1
+            ws[f'A{row}'] = f"Celkem úseků s chybějící detekcí: {len(self.missing_periods)}"
+            ws[f'A{row}'].font = Font(bold=True)
+            
+            total_missing_time = sum(p['duration_sec'] for p in self.missing_periods)
+            ws[f'A{row+1}'] = f"Celkový čas chybějících detekcí: {total_missing_time:.1f} s"
+            ws[f'A{row+1}'].font = Font(bold=True)
+            row += 3
+        else:
+            ws[f'A{row}'] = "Žádné chybějící detekce nenalezeny"
+            ws[f'A{row}'].font = Font(italic=True, color="00AA00")
+            row += 3
+        
+        # 3. DYNAMICKÁ ANALÝZA
+        ws[f'A{row}'] = "3. DYNAMICKÁ ANALÝZA"
         ws[f'A{row}'].font = Font(bold=True, size=12)
         row += 1
         
@@ -435,6 +545,7 @@ Příklady použití:
     
     # Výpočet analýz
     analyzer.calculate_static_analysis()
+    analyzer.analyze_missing_periods()
     analyzer.calculate_dynamic_analysis()
     
     # Zobrazení statistik
