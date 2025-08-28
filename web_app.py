@@ -664,7 +664,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function monitorJob(jobId) {
         let pollInterval;
         let pollCount = 0;
-        const maxPolls = 120; // 2 minutes max
+        const maxPolls = 14400; // 4 hours max (for very long videos)
         
         async function pollStatus() {
             try {
@@ -688,11 +688,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     checkAllJobsCompleted();
                 } else if (pollCount >= maxPolls) {
                     clearInterval(pollInterval);
-                    showError(`Timeout: Job ${jobId} took too long`);
+                    showError(`Timeout: Job ${jobId} exceeded 4 hours processing limit`);
                     checkAllJobsCompleted();
                 }
                 
                 pollCount++;
+                
+                // Exponential backoff - after 5 minutes, poll every 5 seconds
+                if (pollCount === 300) { // 5 minutes
+                    clearInterval(pollInterval);
+                    console.log('Switching to slower polling for long job...');
+                    pollInterval = setInterval(pollStatus, 5000); // Every 5 seconds
+                }
             } catch (error) {
                 console.error('Poll error:', error);
                 clearInterval(pollInterval);

@@ -1,0 +1,21 @@
+2025-08-28 14:27:36 - User: vaclavik - Action: login - Details: Successful login
+2025-08-28 14:27:53 - User: vaclavik - Action: file_upload - Details: Uploaded file: input_video.mp4
+2025-08-28 14:27:53 - User: vaclavik - Action: file_upload - Details: Uploaded file: test.mp4
+2025-08-28 14:28:33 - User: vaclavik - Action: file_upload - Details: Uploaded file: input_video.mp4
+2025-08-28 14:28:33 - User: vaclavik - Action: file_upload - Details: Uploaded file: test.mp4
+2025-08-28 14:29:21 - User: vaclavik - Action: processing_completed - Details: Processed: input_video.mp4
+2025-08-28 14:29:40 - User: vaclavik - Action: processing_completed - Details: Processed: test.mp4
+2025-08-28 14:29:44 - User: vaclavik - Action: file_download - Details: Downloaded: input_video_report.xlsx
+2025-08-28 14:29:45 - User: vaclavik - Action: file_download - Details: Downloaded: test_report.xlsx
+2025-08-28 14:30:49 - User: vaclavik - Action: file_upload - Details: Uploaded file: input_video.mp4
+2025-08-28 14:30:50 - User: vaclavik - Action: file_upload - Details: Uploaded file: test.mp4
+2025-08-28 14:30:50 - User: vaclavik - Action: file_upload - Details: Uploaded file: input_video.mp4
+2025-08-28 14:31:46 - User: vaclavik - Action: processing_completed - Details: Processed: input_video.mp4
+2025-08-28 14:32:13 - User: vaclavik - Action: processing_completed - Details: Processed: test.mp4
+2025-08-28 14:33:13 - User: vaclavik - Action: file_upload - Details: Uploaded file: input_video.mp4
+2025-08-28 14:34:30 - User: vaclavik - Action: processing_completed - Details: Processed: input_video.mp4
+2025-08-28 14:36:35 - User: vaclavik - Action: processing_completed - Details: Processed: input_video.mp4
+2025-08-28 14:43:06 - User: vaclavik - Action: file_upload - Details: Uploaded file: input_video.mp4
+2025-08-28 14:46:08 - User: vaclavik - Action: processing_completed - Details: Processed: input_video.mp4
+2025-08-28 14:48:40 - User: vaclavik - Action: file_download - Details: Downloaded: input_video_report.xlsx
+2025-08-28 14:49:05 - User: vaclavik - Action: file_download - Details: Downloaded: input_video_analyzed.mp4
