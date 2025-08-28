@@ -6,6 +6,7 @@ startCommand = "python web_app.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
+autoDeploy = false
 
 [[services]]
 serviceName = "web"
