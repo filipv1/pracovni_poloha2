@@ -1,0 +1,29 @@
+TRUNK ANALYSIS REPORT
+==================================================
+
+Vstupní soubor: uploads\6f28c1b7-0dd4-4165-a9ad-f65e6a5ade27_input_video.mp4
+Výstupní soubor: outputs\6f28c1b7-0dd4-4165-a9ad-f65e6a5ade27_input_video_analyzed.mp4
+
+Video informace:
+  Rozlišení: 1280x720
+  FPS: 25.0
+  Délka: 16.2s
+  Celkem snímků: 405
+
+Zpracování:
+  Zpracované snímky: 405
+  Neúspěšné detekce: 0
+  Úspěšnost: 100.0%
+
+Analýza ohnutí:
+  Snímky s ohnutím >60°: 176
+  Procento ohnutí: 43.46%
+  Průměrný úhel: 52.78°
+  Maximální úhel: 77.95°
+  Minimální úhel: 10.41°
+  Směrodatná odchylka: 18.53°
+
+Konfigurace:
+  Práh ohnutí: 60.0°
+  Model complexity: 1
+  Min detection confidence: 0.5

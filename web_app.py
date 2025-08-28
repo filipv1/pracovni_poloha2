@@ -871,6 +871,66 @@ def health_check():
         'timestamp': datetime.now().isoformat()
     }), 200
 
+@app.route('/admin/logs')
+def admin_logs():
+    """Admin endpoint to view user activity logs"""
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    
+    try:
+        user_actions_path = os.path.join(LOG_FOLDER, 'user_actions.txt')
+        logs_content = []
+        
+        if os.path.exists(user_actions_path):
+            with open(user_actions_path, 'r', encoding='utf-8') as f:
+                logs_content = f.readlines()
+        
+        # Return last 100 entries, newest first
+        logs_content = logs_content[-100:][::-1]
+        
+        html = """
+        <html>
+        <head><title>User Activity Logs</title>
+        <style>
+        body { font-family: monospace; background: #f5f5f5; padding: 20px; }
+        .log-entry { background: white; padding: 8px; margin: 2px 0; border-left: 4px solid #007acc; }
+        .header { background: #333; color: white; padding: 10px; margin-bottom: 20px; }
+        .login { color: green; font-weight: bold; }
+        .logout { color: orange; }
+        .upload { color: blue; }
+        .download { color: purple; }
+        .error { color: red; }
+        </style>
+        </head>
+        <body>
+        <div class="header">
+        <h2>🔍 User Activity Logs</h2>
+        <p>Last 100 entries (newest first) | <a href="/" style="color: white;">← Back to App</a></p>
+        </div>
+        """
+        
+        for line in logs_content:
+            line_clean = line.strip()
+            css_class = ""
+            if "login" in line_clean.lower():
+                css_class = "login"
+            elif "logout" in line_clean.lower():
+                css_class = "logout"  
+            elif "upload" in line_clean.lower():
+                css_class = "upload"
+            elif "download" in line_clean.lower():
+                css_class = "download"
+            elif "failed" in line_clean.lower():
+                css_class = "error"
+                
+            html += f'<div class="log-entry {css_class}">{line_clean}</div>'
+        
+        html += "</body></html>"
+        return html
+        
+    except Exception as e:
+        return f"Error reading logs: {str(e)}"
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     """Handle file upload"""
