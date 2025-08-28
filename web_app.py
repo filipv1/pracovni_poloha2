@@ -50,9 +50,15 @@ if os.environ.get('FLASK_ENV') == 'production':
 
 # Whitelist uživatelů
 WHITELIST_USERS = {
-    'admin': {'password': 'admin123', 'name': 'Administrator'},
-    'user1': {'password': 'user123', 'name': 'Test User'},
-    'demo': {'password': 'demo123', 'name': 'Demo User'}
+    'korc': {'password': 'K7mN9xP2Qw', 'name': 'Korc'},
+    'koska': {'password': 'R8vB3yT6Lm', 'name': 'Koška'},
+    'licha': {'password': 'F5jH8wE9Xn', 'name': 'Licha'},
+    'koutenska': {'password': 'M2nV7kR4Zs', 'name': 'Koutenská'},
+    'kusinova': {'password': 'D9xC6tY3Bp', 'name': 'Kušinová'},
+    'vagnerova': {'password': 'L4gW8fQ5Hm', 'name': 'Vágnerová'},
+    'badrova': {'password': 'T7kN2vS9Rx', 'name': 'Badrová'},
+    'henkova': {'password': 'P3mJ6wA8Qz', 'name': 'Henková'},
+    'vaclavik': {'password': 'A9xL4pK7Fn', 'name': 'Václavík'}
 }
 
 # Queue pro zpracování videí
@@ -278,7 +284,7 @@ LOGIN_TEMPLATE = """
 
                 <div class="divider mt-8">Demo účty</div>
                 <div class="text-center text-sm text-gray-500 dark:text-gray-400">
-                    <p>admin/admin123 • user1/user123 • demo/demo123</p>
+                    <p>korc/K7mN9xP2Qw • koska/R8vB3yT6Lm • licha/F5jH8wE9Xn</p>
                 </div>
             </div>
         </div>
