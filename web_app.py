@@ -24,7 +24,7 @@ from flask import Flask, render_template_string, request, jsonify, session, redi
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 app = Flask(__name__)
-app.secret_key = 'ergonomic-analysis-2025-ultra-secure-key-change-in-production'
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'ergonomic-analysis-2025-ultra-secure-key-change-in-production')
 
 # Konfigurace
 UPLOAD_FOLDER = 'uploads'
@@ -37,9 +37,16 @@ for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER, LOG_FOLDER]:
     os.makedirs(folder, exist_ok=True)
 
 # Flask konfigurace pro velké soubory
-app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024 * 1024  # 5GB
+max_size = int(os.environ.get('MAX_UPLOAD_SIZE', 5 * 1024 * 1024 * 1024))  # Default 5GB
+app.config['MAX_CONTENT_LENGTH'] = max_size
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['OUTPUT_FOLDER'] = OUTPUT_FOLDER
+
+# Production settings
+if os.environ.get('FLASK_ENV') == 'production':
+    # Optimalizace pro cloud deployment
+    import gc
+    gc.set_threshold(700, 10, 10)  # Aggressive garbage collection
 
 # Whitelist uživatelů
 WHITELIST_USERS = {
@@ -842,6 +849,15 @@ def logout():
         session.clear()
     return redirect(url_for('login'))
 
+@app.route('/health')
+def health_check():
+    """Health check endpoint for deployment platforms"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'ergonomic-analysis',
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     """Handle file upload"""
@@ -1129,4 +1145,5 @@ if __name__ == '__main__':
     print("="*60 + "\n")
     
     # Run Flask app
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)

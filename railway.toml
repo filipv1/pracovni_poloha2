@@ -1,0 +1,24 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "python web_app.py"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+
+[[services]]
+serviceName = "web"
+
+[services.source]
+repo = "."
+
+[services.variables]
+FLASK_ENV = "production"
+FLASK_SECRET_KEY = { generate = true }
+PYTHONUNBUFFERED = "1"
+MAX_UPLOAD_SIZE = "5368709120"
+
+[services.volumes]
+mountPath = "/app/data"
+size = "10Gi"

@@ -1,5 +1,10 @@
+Flask==3.0.0
+Werkzeug==3.0.1
 mediapipe==0.10.8
 opencv-python==4.8.1.78
 numpy==1.24.3
 matplotlib==3.7.2
-tqdm
+tqdm==4.66.1
+openpyxl==3.1.2
+requests==2.31.0
+Pillow==10.1.0

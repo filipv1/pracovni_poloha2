@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: ergonomic-analysis-app
+    env: python
+    runtime: python-3.9.18
+    buildCommand: "pip install --no-cache-dir -r requirements.txt"
+    startCommand: "python web_app.py"
+    plan: starter  # Upgrade to 'starter' for more RAM
+    healthCheckPath: /health
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: PORT
+        fromService:
+          type: web
+          name: ergonomic-analysis-app
+          property: port
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    disk:
+      name: app-storage
+      mountPath: /opt/render/project/src/storage
+      sizeGB: 10

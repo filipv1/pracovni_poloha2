@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: ergonomic-analysis-app
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python web_app.py"
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: FLASK_APP
+        value: web_app.py
+      - key: PORT
+        fromService:
+          type: web
+          name: ergonomic-analysis-app
+          property: port
+    disk:
+      name: ergonomic-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 20
