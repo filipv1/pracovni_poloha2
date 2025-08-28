@@ -282,9 +282,9 @@ LOGIN_TEMPLATE = """
                     </div>
                 </form>
 
-                <div class="divider mt-8">Demo účty</div>
+                <div class="divider mt-8">Přihlášení</div>
                 <div class="text-center text-sm text-gray-500 dark:text-gray-400">
-                    <p>korc/K7mN9xP2Qw • koska/R8vB3yT6Lm • licha/F5jH8wE9Xn</p>
+                    <p>Pro přístup kontaktujte administrátora</p>
                 </div>
             </div>
         </div>
