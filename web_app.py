@@ -12,7 +12,7 @@ import shutil
 import logging
 import tempfile
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Thread
 from queue import Queue
@@ -65,6 +65,35 @@ WHITELIST_USERS = {
 processing_queue = Queue()
 active_jobs = {}
 
+# Cleanup old upload sessions on startup
+def cleanup_old_sessions():
+    """Clean up old upload sessions and incomplete files"""
+    try:
+        cutoff_time = datetime.now() - timedelta(hours=24)  # Remove sessions older than 24 hours
+        to_remove = []
+        
+        for job_id, job in active_jobs.items():
+            created_at = job.get('created_at')
+            if created_at and created_at < cutoff_time:
+                # Remove incomplete upload file
+                if job.get('status') == 'uploading' and job.get('filepath'):
+                    try:
+                        if os.path.exists(job['filepath']):
+                            os.remove(job['filepath'])
+                            logger.info(f"Removed incomplete upload: {job['filepath']}")
+                    except Exception as e:
+                        logger.error(f"Failed to remove incomplete upload {job['filepath']}: {e}")
+                
+                to_remove.append(job_id)
+        
+        for job_id in to_remove:
+            del active_jobs[job_id]
+            logger.info(f"Cleaned up old session: {job_id}")
+            
+    except Exception as e:
+        logger.error(f"Session cleanup error: {e}")
+
+
 # Logging setup
 def setup_logging():
     """Nastavení logování do souboru"""
@@ -80,6 +109,7 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 logger = setup_logging()
+cleanup_old_sessions()  # Clean up on startup
 
 def log_user_action(username, action, details=""):
     """Logování uživatelských akcí"""
@@ -623,24 +653,10 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     async function uploadAndProcess(file) {
-        const jobId = generateUUID();
-        activeJobs[jobId] = { file: file.name, status: 'uploading' };
+        const jobId = await chunkedUpload(file);
+        if (!jobId) return; // Upload failed
         
         try {
-            // Upload file
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('job_id', jobId);
-            
-            updateProgress(`Nahrávám ${file.name}`, 10);
-            
-            const uploadResponse = await fetch('/upload', {
-                method: 'POST',
-                body: formData
-            });
-            
-            if (!uploadResponse.ok) throw new Error('Upload failed');
-            
             updateProgress(`Zpracovávám ${file.name}`, 30);
             
             // Start processing
@@ -658,6 +674,85 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (error) {
             console.error('Error:', error);
             showError(`Chyba při zpracování ${file.name}: ${error.message}`);
+        }
+    }
+
+    async function chunkedUpload(file) {
+        const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        
+        try {
+            // Initialize upload
+            const initResponse = await fetch('/upload/init', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filename: file.name,
+                    filesize: file.size,
+                    chunk_size: CHUNK_SIZE
+                })
+            });
+            
+            if (!initResponse.ok) {
+                const error = await initResponse.json();
+                throw new Error(error.error || 'Upload initialization failed');
+            }
+            
+            const { job_id, chunk_size, total_chunks } = await initResponse.json();
+            activeJobs[job_id] = { file: file.name, status: 'uploading', originalFile: file };
+            
+            // Upload chunks
+            for (let chunkIndex = 0; chunkIndex < total_chunks; chunkIndex++) {
+                const start = chunkIndex * chunk_size;
+                const end = Math.min(start + chunk_size, file.size);
+                const chunk = file.slice(start, end);
+                
+                const progress = Math.round((chunkIndex / total_chunks) * 25); // Upload is 0-25% of total progress
+                updateProgress(`Nahrávám ${file.name}`, progress);
+                
+                // Upload chunk with retry logic
+                let retryCount = 0;
+                const maxRetries = 3;
+                
+                while (retryCount < maxRetries) {
+                    try {
+                        const chunkResponse = await fetch(`/upload/chunk/${job_id}/${chunkIndex}`, {
+                            method: 'POST',
+                            body: chunk
+                        });
+                        
+                        if (!chunkResponse.ok) {
+                            throw new Error(`Chunk ${chunkIndex} upload failed: HTTP ${chunkResponse.status}`);
+                        }
+                        
+                        const result = await chunkResponse.json();
+                        if (result.status === 'success' || result.status === 'already_uploaded') {
+                            break; // Chunk uploaded successfully
+                        }
+                        
+                        throw new Error(`Chunk ${chunkIndex} upload failed: ${result.error || 'Unknown error'}`);
+                        
+                    } catch (error) {
+                        retryCount++;
+                        console.warn(`Chunk ${chunkIndex} failed (attempt ${retryCount}/${maxRetries}):`, error);
+                        
+                        if (retryCount >= maxRetries) {
+                            throw new Error(`Failed to upload chunk ${chunkIndex} after ${maxRetries} attempts: ${error.message}`);
+                        }
+                        
+                        // Wait before retry (exponential backoff)
+                        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount - 1)));
+                    }
+                }
+            }
+            
+            updateProgress(`Upload ${file.name} dokončen`, 25);
+            return job_id;
+            
+        } catch (error) {
+            console.error('Chunked upload failed:', error);
+            showError(`Chyba při nahrávání ${file.name}: ${error.message}`);
+            return null;
         }
     }
 
@@ -868,8 +963,37 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'service': 'ergonomic-analysis',
-        'timestamp': datetime.now().isoformat()
+        'timestamp': datetime.now().isoformat(),
+        'active_jobs': len(active_jobs)
     }), 200
+
+@app.route('/upload/cleanup/<job_id>', methods=['DELETE'])
+def cleanup_upload(job_id):
+    """Clean up failed or cancelled upload"""
+    if 'username' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if job_id not in active_jobs:
+        return jsonify({'error': 'Job not found'}), 404
+    
+    job = active_jobs[job_id]
+    
+    try:
+        # Remove uploaded file if exists
+        if job.get('filepath') and os.path.exists(job['filepath']):
+            os.remove(job['filepath'])
+            logger.info(f"Cleaned up upload file: {job['filepath']}")
+        
+        # Remove job from active jobs
+        del active_jobs[job_id]
+        
+        log_user_action(session['username'], 'upload_cleanup', f'Cleaned up job: {job_id}')
+        
+        return jsonify({'status': 'cleaned_up'})
+        
+    except Exception as e:
+        logger.error(f"Cleanup error for job {job_id}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/admin/logs')
 def admin_logs():
@@ -931,9 +1055,140 @@ def admin_logs():
     except Exception as e:
         return f"Error reading logs: {str(e)}"
 
+@app.route('/upload/init', methods=['POST'])
+def init_upload():
+    """Initialize chunked upload"""
+    if 'username' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    filename = data.get('filename')
+    filesize = data.get('filesize')
+    chunk_size = data.get('chunk_size', 1024 * 1024)  # Default 1MB chunks
+    
+    if not filename or not filesize:
+        return jsonify({'error': 'Missing filename or filesize'}), 400
+        
+    # Validate file extension
+    file_ext = Path(filename).suffix.lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        return jsonify({'error': f'Unsupported file format: {file_ext}'}), 400
+    
+    # Generate job ID and setup upload session
+    job_id = str(uuid.uuid4())
+    upload_filename = f"{job_id}_{filename}"
+    upload_filepath = os.path.join(app.config['UPLOAD_FOLDER'], upload_filename)
+    
+    total_chunks = (filesize + chunk_size - 1) // chunk_size
+    
+    # Store upload session info
+    active_jobs[job_id] = {
+        'filename': upload_filename,
+        'filepath': upload_filepath,
+        'original_name': filename,
+        'filesize': filesize,
+        'chunk_size': chunk_size,
+        'total_chunks': total_chunks,
+        'uploaded_chunks': set(),
+        'status': 'uploading',
+        'upload_progress': 0,
+        'user': session['username'],
+        'created_at': datetime.now()
+    }
+    
+    # Create empty file
+    with open(upload_filepath, 'wb') as f:
+        f.seek(filesize - 1)
+        f.write(b'\0')
+    
+    log_user_action(session['username'], 'upload_init', f'Started upload: {filename} ({filesize} bytes, {total_chunks} chunks)')
+    logger.info(f"Upload initialized: {filename} ({filesize} bytes) by {session['username']}")
+    
+    return jsonify({
+        'job_id': job_id,
+        'chunk_size': chunk_size,
+        'total_chunks': total_chunks
+    })
+
+@app.route('/upload/chunk/<job_id>/<int:chunk_index>', methods=['POST'])
+def upload_chunk(job_id, chunk_index):
+    """Handle individual chunk upload"""
+    if 'username' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if job_id not in active_jobs:
+        return jsonify({'error': 'Upload session not found'}), 404
+    
+    job = active_jobs[job_id]
+    
+    if job['status'] != 'uploading':
+        return jsonify({'error': 'Upload session not active'}), 400
+    
+    if chunk_index >= job['total_chunks'] or chunk_index < 0:
+        return jsonify({'error': 'Invalid chunk index'}), 400
+    
+    # Check if chunk already uploaded (for resumability)
+    if chunk_index in job['uploaded_chunks']:
+        return jsonify({'status': 'already_uploaded', 'progress': len(job['uploaded_chunks']) / job['total_chunks'] * 100})
+    
+    try:
+        # Get chunk data
+        chunk_data = request.get_data()
+        if not chunk_data:
+            return jsonify({'error': 'No chunk data received'}), 400
+        
+        # Write chunk to file
+        with open(job['filepath'], 'r+b') as f:
+            f.seek(chunk_index * job['chunk_size'])
+            f.write(chunk_data)
+        
+        # Update progress
+        job['uploaded_chunks'].add(chunk_index)
+        progress = len(job['uploaded_chunks']) / job['total_chunks'] * 100
+        job['upload_progress'] = progress
+        
+        # Check if upload is complete
+        if len(job['uploaded_chunks']) == job['total_chunks']:
+            job['status'] = 'uploaded'
+            log_user_action(session['username'], 'file_upload', f'Uploaded file: {job["original_name"]}')
+            logger.info(f"Upload completed: {job['filename']} by {session['username']}")
+        
+        return jsonify({
+            'status': 'success',
+            'progress': progress,
+            'uploaded_chunks': len(job['uploaded_chunks']),
+            'total_chunks': job['total_chunks'],
+            'upload_complete': job['status'] == 'uploaded'
+        })
+        
+    except Exception as e:
+        logger.error(f"Chunk upload error (job: {job_id}, chunk: {chunk_index}): {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/upload/status/<job_id>', methods=['GET'])
+def upload_status(job_id):
+    """Get upload progress status"""
+    if 'username' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    if job_id not in active_jobs:
+        return jsonify({'error': 'Job not found'}), 404
+    
+    job = active_jobs[job_id]
+    
+    return jsonify({
+        'status': job['status'],
+        'progress': job.get('upload_progress', 0),
+        'uploaded_chunks': len(job.get('uploaded_chunks', set())),
+        'total_chunks': job.get('total_chunks', 0),
+        'filename': job.get('original_name', ''),
+        'message': job.get('message', '')
+    })
+
+# Keep old upload endpoint for backward compatibility (deprecated)
 @app.route('/upload', methods=['POST'])
-def upload_file():
-    """Handle file upload"""
+def upload_file_legacy():
+    """Legacy upload endpoint - deprecated, use chunked upload instead"""
     if 'username' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
         
@@ -956,8 +1211,14 @@ def upload_file():
         filename = f"{job_id}_{file.filename}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         
-        # Save file
-        file.save(filepath)
+        # Save file with streaming to handle large files
+        CHUNK_SIZE = 16 * 1024  # 16KB chunks
+        with open(filepath, 'wb') as f:
+            while True:
+                chunk = file.stream.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                f.write(chunk)
         
         # Store job info
         active_jobs[job_id] = {
@@ -974,7 +1235,9 @@ def upload_file():
         return jsonify({'job_id': job_id, 'status': 'uploaded'})
         
     except Exception as e:
-        logger.error(f"Upload error: {str(e)}")
+        error_msg = f"Upload error for {file.filename}: {str(e)}"
+        logger.error(error_msg)
+        log_user_action(session['username'], 'file_upload_failed', error_msg)
         return jsonify({'error': str(e)}), 500
 
 @app.route('/process', methods=['POST'])
@@ -1028,8 +1291,21 @@ def process_video_async(job_id):
         job['progress'] = 60
         job['message'] = 'Analýza dokončena, vytvářím report...'
         
-        # Run analyze_ergonomics.py for Excel report  
-        cmd2_str = f'"{sys.executable}" analyze_ergonomics.py "{output_csv}" "{output_excel}"'
+        # Get FPS from video file for accurate time calculations
+        import cv2
+        video_fps = 25.0  # Default fallback
+        try:
+            cap = cv2.VideoCapture(input_path)
+            video_fps = cap.get(cv2.CAP_PROP_FPS)
+            cap.release()
+            if video_fps <= 0:
+                video_fps = 25.0  # Fallback to default
+            logger.info(f"Detected video FPS: {video_fps}")
+        except Exception as fps_error:
+            logger.warning(f"Could not detect video FPS: {fps_error}, using default 25.0")
+        
+        # Run analyze_ergonomics.py for Excel report with correct FPS
+        cmd2_str = f'"{sys.executable}" analyze_ergonomics.py "{output_csv}" "{output_excel}" --fps {video_fps}'
         result2 = subprocess.run(cmd2_str, capture_output=True, text=True, shell=True, cwd=os.getcwd(), env=env, encoding='utf-8', errors='ignore')
         
         if result2.returncode != 0:
