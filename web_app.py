@@ -83,55 +83,55 @@ WHITELIST_USERS = {
     'korc': {
         'password': 'K7mN9xP2Qw', 
         'name': 'Korc',
-        'email': 'vaclavik@renturi.cz',
+        'email': 'vaclavik.renturi@gmail.com',
         'email_notifications': True
     },
     'koska': {
         'password': 'R8vB3yT6Lm', 
         'name': 'Koška',
-        'email': 'vaclavik@renturi.cz',
+        'email': 'vaclavik.renturi@gmail.com',
         'email_notifications': True
     },
     'licha': {
         'password': 'F5jH8wE9Xn', 
         'name': 'Licha',
-        'email': 'vaclavik@renturi.cz',
+        'email': 'vaclavik.renturi@gmail.com',
         'email_notifications': True
     },
     'koutenska': {
         'password': 'M2nV7kR4Zs', 
         'name': 'Koutenská',
-        'email': 'vaclavik@renturi.cz',
+        'email': 'vaclavik.renturi@gmail.com',
         'email_notifications': True
     },
     'kusinova': {
         'password': 'D9xC6tY3Bp', 
         'name': 'Kušinová',
-        'email': 'vaclavik@renturi.cz',
+        'email': 'vaclavik.renturi@gmail.com',
         'email_notifications': True
     },
     'vagnerova': {
         'password': 'L4gW8fQ5Hm', 
         'name': 'Vágnerová',
-        'email': 'vaclavik@renturi.cz',
+        'email': 'vaclavik.renturi@gmail.com',
         'email_notifications': True
     },
     'badrova': {
         'password': 'T7kN2vS9Rx', 
         'name': 'Badrová',
-        'email': 'vaclavik@renturi.cz',
+        'email': 'vaclavik.renturi@gmail.com',
         'email_notifications': True
     },
     'henkova': {
         'password': 'P3mJ6wA8Qz', 
         'name': 'Henková',
-        'email': 'vaclavik@renturi.cz',
+        'email': 'vaclavik.renturi@gmail.com',
         'email_notifications': True
     },
     'vaclavik': {
         'password': 'A9xL4pK7Fn', 
         'name': 'Václavík',
-        'email': 'vaclavik@renturi.cz',
+        'email': 'vaclavik.renturi@gmail.com',
         'email_notifications': True
     }
 }
