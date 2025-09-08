@@ -429,20 +429,37 @@ class ResendEmailService:
                 return False
                 
             # Create download links
-            files = job_data.get('files', {})
+            files = job_data.get('files', [])
             download_links = []
             
-            for file_type, filepath in files.items():
-                if filepath and os.path.exists(filepath):
-                    filename = os.path.basename(filepath)
-                    token = self.generate_download_token(job_id, filename)
-                    download_url = f"https://{self.app.config.get('SERVER_NAME', 'localhost')}/download/token/{token}"
-                    
-                    download_links.append({
-                        'filename': filename,
-                        'type': file_type,
-                        'url': download_url
-                    })
+            # Handle both list and dictionary formats for backward compatibility
+            if isinstance(files, list):
+                # New format: list of file objects
+                for file_obj in files:
+                    for file_type, filepath in file_obj.items():
+                        if file_type != 'original_name' and filepath and os.path.exists(filepath):
+                            filename = os.path.basename(filepath)
+                            token = self.generate_download_token(job_id, filename)
+                            download_url = f"https://{self.app.config.get('SERVER_NAME', 'localhost')}/download/token/{token}"
+                            
+                            download_links.append({
+                                'filename': filename,
+                                'type': file_type,
+                                'url': download_url
+                            })
+            else:
+                # Legacy format: dictionary
+                for file_type, filepath in files.items():
+                    if filepath and os.path.exists(filepath):
+                        filename = os.path.basename(filepath)
+                        token = self.generate_download_token(job_id, filename)
+                        download_url = f"https://{self.app.config.get('SERVER_NAME', 'localhost')}/download/token/{token}"
+                        
+                        download_links.append({
+                            'filename': filename,
+                            'type': file_type,
+                            'url': download_url
+                        })
             
             if not download_links:
                 logger.warning(f"No files to send for job {job_id}")
