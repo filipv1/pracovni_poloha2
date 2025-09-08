@@ -194,14 +194,33 @@ class EmailService:
         files = job_data.get('files', [])
         file_count = len(files)
         
-        # Generate download links
+        # Generate download links with proper server config
         download_links = []
+        
+        # Ensure SERVER_NAME is set for URL generation
+        if not self.app.config.get('SERVER_NAME'):
+            # Railway provides RAILWAY_STATIC_URL or we can construct from service name
+            railway_url = os.environ.get('RAILWAY_STATIC_URL') or os.environ.get('RAILWAY_PUBLIC_DOMAIN')
+            if railway_url:
+                self.app.config['SERVER_NAME'] = railway_url.replace('https://', '').replace('http://', '')
+                self.app.config['PREFERRED_URL_SCHEME'] = 'https'
+            else:
+                # Fallback for Railway - construct domain
+                self.app.config['SERVER_NAME'] = 'pracpol2-production.up.railway.app'
+                self.app.config['PREFERRED_URL_SCHEME'] = 'https'
+        
         for file_info in files:
             for output_type in ['video', 'report']:
                 if output_type in file_info and file_info[output_type]:
                     filename = os.path.basename(file_info[output_type])
                     token = self.generate_download_token(job_id, filename)
-                    download_url = url_for('download_with_token', token=token, _external=True)
+                    try:
+                        download_url = url_for('download_with_token', token=token, _external=True)
+                    except:
+                        # Fallback URL construction
+                        base_url = f"https://{self.app.config.get('SERVER_NAME', 'localhost:5000')}"
+                        download_url = f"{base_url}/download/token/{token}"
+                    
                     download_links.append({
                         'filename': filename,
                         'type': 'Video s analýzou' if output_type == 'video' else 'Excel report',
@@ -481,8 +500,9 @@ def email_worker():
             
             logger.info(f"Processing email for job {job_data.get('id')}, attempt {retry_count + 1}")
             
-            # Pokus o odeslání emailu
-            success = email_service.send_completion_email(job_data)
+            # Pokus o odeslání emailu s aplikačním kontextem
+            with app.app_context():
+                success = email_service.send_completion_email(job_data)
             
             if success:
                 # Email odeslán úspěšně
