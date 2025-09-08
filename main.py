@@ -98,6 +98,13 @@ Priklady pouziti:
     )
     
     parser.add_argument(
+        '--progress-file',
+        type=str,
+        default=None,
+        help='Cesta k souboru pro zápis real-time progress informací (JSON)'
+    )
+    
+    parser.add_argument(
         '--version',
         action='version',
         version='Trunk Analysis v1.0.0'
@@ -215,7 +222,8 @@ def main():
             min_detection_confidence=args.min_detection_confidence,
             bend_threshold=args.angle_threshold,
             smoothing_window=args.smoothing_window,
-            export_csv=args.csv_export
+            export_csv=args.csv_export,
+            progress_file=args.progress_file
         )
         
         # Zobrazení informací o videu

@@ -19,6 +19,14 @@ from queue import Queue
 import time
 
 from flask import Flask, render_template_string, request, jsonify, session, redirect, url_for, flash, send_file, Response
+from flask_mail import Mail, Message
+import hashlib
+import hmac
+import base64
+
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
 
 # Přidání src do Python path pro import modulů
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -26,14 +34,20 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'ergonomic-analysis-2025-ultra-secure-key-change-in-production')
 
+# Session configuration for long uploads
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)  # 2 hour session timeout
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
 # Konfigurace
 UPLOAD_FOLDER = 'uploads'
 OUTPUT_FOLDER = 'outputs' 
 LOG_FOLDER = 'logs'
+JOBS_FOLDER = 'jobs'
 ALLOWED_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.m4v', '.wmv', '.flv', '.webm'}
 
 # Vytvoření potřebných složek
-for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER, LOG_FOLDER]:
+for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER, LOG_FOLDER, JOBS_FOLDER]:
     os.makedirs(folder, exist_ok=True)
 
 # Flask konfigurace pro velké soubory
@@ -42,28 +56,366 @@ app.config['MAX_CONTENT_LENGTH'] = max_size
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['OUTPUT_FOLDER'] = OUTPUT_FOLDER
 
+# Email konfigurace
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
+app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'True').lower() == 'true'
+app.config['MAIL_USE_SSL'] = os.environ.get('MAIL_USE_SSL', 'False').lower() == 'true'
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
+
+# Initialize Flask-Mail
+mail = Mail(app)
+
 # Production settings
 if os.environ.get('FLASK_ENV') == 'production':
     # Optimalizace pro cloud deployment
     import gc
     gc.set_threshold(700, 10, 10)  # Aggressive garbage collection
 
-# Whitelist uživatelů
+# Whitelist uživatelů s email podporou
 WHITELIST_USERS = {
-    'korc': {'password': 'K7mN9xP2Qw', 'name': 'Korc'},
-    'koska': {'password': 'R8vB3yT6Lm', 'name': 'Koška'},
-    'licha': {'password': 'F5jH8wE9Xn', 'name': 'Licha'},
-    'koutenska': {'password': 'M2nV7kR4Zs', 'name': 'Koutenská'},
-    'kusinova': {'password': 'D9xC6tY3Bp', 'name': 'Kušinová'},
-    'vagnerova': {'password': 'L4gW8fQ5Hm', 'name': 'Vágnerová'},
-    'badrova': {'password': 'T7kN2vS9Rx', 'name': 'Badrová'},
-    'henkova': {'password': 'P3mJ6wA8Qz', 'name': 'Henková'},
-    'vaclavik': {'password': 'A9xL4pK7Fn', 'name': 'Václavík'}
+    'korc': {
+        'password': 'K7mN9xP2Qw', 
+        'name': 'Korc',
+        'email': 'vaclavik@renturi.cz',
+        'email_notifications': True
+    },
+    'koska': {
+        'password': 'R8vB3yT6Lm', 
+        'name': 'Koška',
+        'email': 'vaclavik@renturi.cz',
+        'email_notifications': True
+    },
+    'licha': {
+        'password': 'F5jH8wE9Xn', 
+        'name': 'Licha',
+        'email': 'vaclavik@renturi.cz',
+        'email_notifications': True
+    },
+    'koutenska': {
+        'password': 'M2nV7kR4Zs', 
+        'name': 'Koutenská',
+        'email': 'vaclavik@renturi.cz',
+        'email_notifications': True
+    },
+    'kusinova': {
+        'password': 'D9xC6tY3Bp', 
+        'name': 'Kušinová',
+        'email': 'vaclavik@renturi.cz',
+        'email_notifications': True
+    },
+    'vagnerova': {
+        'password': 'L4gW8fQ5Hm', 
+        'name': 'Vágnerová',
+        'email': 'vaclavik@renturi.cz',
+        'email_notifications': True
+    },
+    'badrova': {
+        'password': 'T7kN2vS9Rx', 
+        'name': 'Badrová',
+        'email': 'vaclavik@renturi.cz',
+        'email_notifications': True
+    },
+    'henkova': {
+        'password': 'P3mJ6wA8Qz', 
+        'name': 'Henková',
+        'email': 'vaclavik@renturi.cz',
+        'email_notifications': True
+    },
+    'vaclavik': {
+        'password': 'A9xL4pK7Fn', 
+        'name': 'Václavík',
+        'email': 'vaclavik@renturi.cz',
+        'email_notifications': True
+    }
 }
 
-# Queue pro zpracování videí
+# Queue pro zpracování videí a emailů
 processing_queue = Queue()
-active_jobs = {}
+email_queue = Queue()
+active_jobs = {}  # Zachováme pro kompatibilitu, ale budeme používat filesystem
+
+# Email service a token systém
+class EmailService:
+    """Služba pro zasílání emailů s notifikacemi o dokončení analýzy"""
+    
+    def __init__(self, app, mail):
+        self.app = app
+        self.mail = mail
+        self.secret_key = app.secret_key.encode()
+    
+    def generate_download_token(self, job_id, filename, expiry_hours=168):  # 7 days
+        """Vygeneruje signed token pro secure download"""
+        expiry_time = int(time.time()) + (expiry_hours * 3600)
+        payload = f"{job_id}:{filename}:{expiry_time}"
+        signature = hmac.new(self.secret_key, payload.encode(), hashlib.sha256).hexdigest()
+        token = base64.urlsafe_b64encode(f"{payload}:{signature}".encode()).decode()
+        return token
+    
+    def verify_download_token(self, token):
+        """Ověří download token a vrátí (job_id, filename) nebo None"""
+        try:
+            decoded = base64.urlsafe_b64decode(token.encode()).decode()
+            parts = decoded.split(':')
+            if len(parts) != 4:
+                return None
+            
+            job_id, filename, expiry_time, signature = parts
+            
+            # Verify signature
+            payload = f"{job_id}:{filename}:{expiry_time}"
+            expected_sig = hmac.new(self.secret_key, payload.encode(), hashlib.sha256).hexdigest()
+            
+            if not hmac.compare_digest(signature, expected_sig):
+                return None
+            
+            # Check expiry
+            if int(time.time()) > int(expiry_time):
+                return None
+            
+            return job_id, filename
+            
+        except Exception:
+            return None
+    
+    def create_completion_email(self, job_data):
+        """Vytvoří email o dokončení analýzy"""
+        username = job_data.get('username', 'Uživatel')
+        user_info = WHITELIST_USERS.get(username, {})
+        user_name = user_info.get('name', username)
+        user_email = user_info.get('email')
+        
+        if not user_email:
+            return None
+        
+        job_id = job_data.get('id')
+        files = job_data.get('files', [])
+        file_count = len(files)
+        
+        # Generate download links
+        download_links = []
+        for file_info in files:
+            for output_type in ['video', 'report']:
+                if output_type in file_info and file_info[output_type]:
+                    filename = os.path.basename(file_info[output_type])
+                    token = self.generate_download_token(job_id, filename)
+                    download_url = url_for('download_with_token', token=token, _external=True)
+                    download_links.append({
+                        'filename': filename,
+                        'type': 'Video s analýzou' if output_type == 'video' else 'Excel report',
+                        'url': download_url
+                    })
+        
+        # HTML email template
+        html_body = self.get_email_template(user_name, file_count, download_links)
+        
+        # Text fallback
+        text_body = self.get_text_email_template(user_name, file_count, download_links)
+        
+        msg = Message(
+            subject=f"✅ Analýza dokončena - {file_count} souborů",
+            recipients=[user_email],
+            html=html_body,
+            body=text_body
+        )
+        
+        return msg
+    
+    def get_email_template(self, user_name, file_count, download_links):
+        """HTML email template"""
+        links_html = ""
+        for link in download_links:
+            links_html += f'''
+            <tr>
+                <td style="padding: 10px; background: #f8f9fa; border-radius: 8px; margin-bottom: 5px;">
+                    <div style="font-weight: 600; color: #2d3748;">{link['filename']}</div>
+                    <div style="color: #718096; font-size: 14px;">{link['type']}</div>
+                    <a href="{link['url']}" style="display: inline-block; margin-top: 8px; padding: 8px 16px; background: #4299e1; color: white; text-decoration: none; border-radius: 6px; font-size: 14px;">Stáhnout</a>
+                </td>
+            </tr>
+            '''
+        
+        return f'''
+        <html>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #2d3748; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 12px; text-align: center; color: white; margin-bottom: 30px;">
+                <h1 style="margin: 0; font-size: 28px; font-weight: 700;">Analýza dokončena!</h1>
+                <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 16px;">Vaše soubory jsou připraveny ke stažení</p>
+            </div>
+            
+            <div style="background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <p style="font-size: 18px; margin: 0 0 20px 0;">Ahoj {user_name}!</p>
+                
+                <p style="margin: 0 0 25px 0; color: #4a5568;">
+                    Vaše analýza pracovní polohy byla úspěšně dokončena. 
+                    Zpracovali jsme <strong>{file_count} souborů</strong> a výsledky jsou připraveny ke stažení.
+                </p>
+                
+                <div style="margin: 25px 0;">
+                    <h3 style="color: #2d3748; margin: 0 0 15px 0;">Soubory ke stažení:</h3>
+                    <table style="width: 100%; border-collapse: separate; border-spacing: 0 8px;">
+                        {links_html}
+                    </table>
+                </div>
+                
+                <div style="background: #e6fffa; padding: 15px; border-radius: 8px; border-left: 4px solid #38b2ac; margin: 25px 0;">
+                    <p style="margin: 0; color: #285e61;">
+                        <strong>Poznámka:</strong> Odkazy jsou platné po dobu 7 dní. 
+                        Doporučujeme si soubory stáhnout co nejdříve.
+                    </p>
+                </div>
+                
+                <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+                    <p style="margin: 0; color: #718096; font-size: 14px;">
+                        Děkujeme za použití naší aplikace pro analýzu pracovní polohy.
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+        '''
+    
+    def get_text_email_template(self, user_name, file_count, download_links):
+        """Text email template jako fallback"""
+        links_text = "\n".join([
+            f"- {link['filename']} ({link['type']}): {link['url']}"
+            for link in download_links
+        ])
+        
+        return f'''
+Ahoj {user_name}!
+
+Vaše analýza pracovní polohy byla úspěšně dokončena.
+Zpracovali jsme {file_count} souborů a výsledky jsou připraveny ke stažení.
+
+Soubory ke stažení:
+{links_text}
+
+Poznámka: Odkazy jsou platné po dobu 7 dní. Doporučujeme si soubory stáhnout co nejdříve.
+
+Děkujeme za použití naší aplikace pro analýzu pracovní polohy.
+        '''
+    
+    def send_completion_email(self, job_data):
+        """Pošle email o dokončení analýzy"""
+        try:
+            msg = self.create_completion_email(job_data)
+            if msg:
+                self.mail.send(msg)
+                logger.info(f"Email sent successfully for job {job_data.get('id')}")
+                return True
+            else:
+                logger.warning(f"No email configured for user {job_data.get('username')}")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to send email for job {job_data.get('id')}: {e}")
+            return False
+
+# Initialize email service
+email_service = EmailService(app, mail)
+
+# Job persistence functions
+def save_job(job_id, job_data):
+    """Save job data to JSON file"""
+    job_file = os.path.join(JOBS_FOLDER, f"{job_id}.json")
+    temp_file = f"{job_file}.tmp"
+    
+    try:
+        # Add timestamp if not present
+        if 'updated_at' not in job_data:
+            job_data['updated_at'] = time.time()
+        
+        # Atomic write using temp file
+        with open(temp_file, 'w', encoding='utf-8') as f:
+            json.dump(job_data, f, ensure_ascii=False, indent=2)
+        
+        # Atomic rename
+        os.replace(temp_file, job_file)
+        
+        # Also update in-memory cache
+        active_jobs[job_id] = job_data
+        
+    except Exception as e:
+        logger.error(f"Failed to save job {job_id}: {e}")
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+
+def load_job(job_id):
+    """Load job data from JSON file"""
+    # First check memory cache
+    if job_id in active_jobs:
+        return active_jobs[job_id]
+    
+    job_file = os.path.join(JOBS_FOLDER, f"{job_id}.json")
+    
+    try:
+        if os.path.exists(job_file):
+            with open(job_file, 'r', encoding='utf-8') as f:
+                job_data = json.load(f)
+            
+            # Update memory cache
+            active_jobs[job_id] = job_data
+            return job_data
+    except Exception as e:
+        logger.error(f"Failed to load job {job_id}: {e}")
+    
+    return None
+
+def delete_job(job_id):
+    """Delete job data and files"""
+    job_file = os.path.join(JOBS_FOLDER, f"{job_id}.json")
+    chunks_file = os.path.join(JOBS_FOLDER, f"{job_id}.chunks")
+    
+    try:
+        if os.path.exists(job_file):
+            os.remove(job_file)
+        if os.path.exists(chunks_file):
+            os.remove(chunks_file)
+        
+        # Remove from memory
+        if job_id in active_jobs:
+            del active_jobs[job_id]
+            
+    except Exception as e:
+        logger.error(f"Failed to delete job {job_id}: {e}")
+
+def save_uploaded_chunk(job_id, chunk_index):
+    """Track uploaded chunks for resume capability"""
+    chunks_file = os.path.join(JOBS_FOLDER, f"{job_id}.chunks")
+    
+    try:
+        # Load existing chunks
+        chunks = set()
+        if os.path.exists(chunks_file):
+            with open(chunks_file, 'r') as f:
+                chunks = set(json.load(f))
+        
+        # Add new chunk
+        chunks.add(chunk_index)
+        
+        # Save back
+        with open(chunks_file, 'w') as f:
+            json.dump(list(chunks), f)
+            
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save chunk {chunk_index} for job {job_id}: {e}")
+        return False
+
+def get_uploaded_chunks(job_id):
+    """Get list of uploaded chunks"""
+    chunks_file = os.path.join(JOBS_FOLDER, f"{job_id}.chunks")
+    
+    try:
+        if os.path.exists(chunks_file):
+            with open(chunks_file, 'r') as f:
+                return set(json.load(f))
+    except Exception as e:
+        logger.error(f"Failed to load chunks for job {job_id}: {e}")
+    
+    return set()
 
 # Cleanup old upload sessions on startup
 def cleanup_old_sessions():
@@ -110,6 +462,65 @@ def setup_logging():
 
 logger = setup_logging()
 cleanup_old_sessions()  # Clean up on startup
+
+# Email worker thread
+def email_worker():
+    """Background worker pro zasílání emailů"""
+    logger.info("Email worker started")
+    
+    while True:
+        try:
+            # Čeká na email úlohu v queue (timeout 30s)
+            email_task = email_queue.get(timeout=30)
+            
+            if email_task is None:  # Shutdown signal
+                break
+                
+            job_data = email_task.get('job_data')
+            retry_count = email_task.get('retry_count', 0)
+            
+            logger.info(f"Processing email for job {job_data.get('id')}, attempt {retry_count + 1}")
+            
+            # Pokus o odeslání emailu
+            success = email_service.send_completion_email(job_data)
+            
+            if success:
+                # Email odeslán úspěšně
+                job_data['email_sent'] = True
+                job_data['email_sent_at'] = time.time()
+                save_job(job_data.get('id'), job_data)
+                logger.info(f"Email successfully sent for job {job_data.get('id')}")
+            else:
+                # Email se nepodařilo odeslat
+                if retry_count < 3:  # Maximálně 3 pokusy
+                    # Exponential backoff: 1min, 2min, 4min
+                    retry_delay = (2 ** retry_count) * 60
+                    logger.warning(f"Email failed for job {job_data.get('id')}, retrying in {retry_delay}s")
+                    
+                    # Zaplanuj retry
+                    def retry_email():
+                        time.sleep(retry_delay)
+                        email_queue.put({
+                            'job_data': job_data,
+                            'retry_count': retry_count + 1
+                        })
+                    
+                    Thread(target=retry_email, daemon=True).start()
+                else:
+                    logger.error(f"Email permanently failed for job {job_data.get('id')} after 3 attempts")
+                    job_data['email_failed'] = True
+                    save_job(job_data.get('id'), job_data)
+            
+            email_queue.task_done()
+            
+        except Exception as e:
+            if "timeout" not in str(e).lower():  # Ignoruj timeout chyby
+                logger.error(f"Email worker error: {e}")
+            continue
+
+# Spuštění email worker threadu
+email_worker_thread = Thread(target=email_worker, daemon=True)
+email_worker_thread.start()
 
 def log_user_action(username, action, details=""):
     """Logování uživatelských akcí"""
@@ -520,21 +931,52 @@ MAIN_TEMPLATE = """
     
     <!-- Progress Toast -->
     <div id="progress-toast" class="fixed bottom-20 right-4 hidden">
-        <div class="alert alert-info relative">
+        <div class="alert alert-info relative min-w-[400px]">
             <button onclick="document.getElementById('progress-toast').classList.add('hidden')" class="absolute top-2 right-2 btn btn-ghost btn-xs">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
             </button>
-            <div class="flex items-center pr-6">
-                <div class="spin-animation w-5 h-5 border-2 border-white border-t-transparent rounded-full mr-3"></div>
-                <div>
-                    <div class="font-semibold" id="progress-title">Zpracovávám...</div>
-                    <div class="text-sm" id="progress-detail">Prosím počkejte</div>
+            <div class="pr-6">
+                <div class="flex items-center mb-2">
+                    <div class="spin-animation w-5 h-5 border-2 border-white border-t-transparent rounded-full mr-3"></div>
+                    <div>
+                        <div class="font-semibold" id="progress-title">Zpracovávám...</div>
+                        <div class="text-sm" id="progress-detail">Prosím počkejte</div>
+                    </div>
                 </div>
-            </div>
-            <div class="w-full bg-base-300 rounded-full h-2 mt-2">
-                <div id="progress-bar" class="bg-primary h-2 rounded-full progress-bar" style="width: 0%"></div>
+                
+                <!-- Upload stats section -->
+                <div id="upload-stats" class="hidden text-sm space-y-1 mb-2">
+                    <div class="flex justify-between">
+                        <span>Nahráno:</span>
+                        <span id="upload-size">0 MB / 0 MB</span>
+                    </div>
+                    <div class="flex justify-between text-opacity-75">
+                        <span>Rychlost:</span>
+                        <span id="upload-speed">0 MB/s</span>
+                    </div>
+                    <div class="flex justify-between text-opacity-75">
+                        <span>Zbývá:</span>
+                        <span id="upload-eta">0s</span>
+                    </div>
+                </div>
+                
+                <!-- Frame counter section -->
+                <div id="frame-counter" class="hidden text-sm space-y-1 mb-2">
+                    <div class="flex justify-between">
+                        <span>Snímky:</span>
+                        <span id="frame-progress">0 / 0</span>
+                    </div>
+                    <div class="flex justify-between text-opacity-75">
+                        <span>Detekováno:</span>
+                        <span id="detected-frames">0</span>
+                    </div>
+                </div>
+                
+                <div class="w-full bg-base-300 rounded-full h-2 mt-2">
+                    <div id="progress-bar" class="bg-primary h-2 rounded-full progress-bar transition-all duration-500" style="width: 0%"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -549,6 +991,28 @@ document.addEventListener('DOMContentLoaded', function() {
     const startProcessing = document.getElementById('start-processing');
     const resultsSection = document.getElementById('results-section');
     const progressToast = document.getElementById('progress-toast');
+    
+    // Heartbeat to keep session alive during long uploads
+    let heartbeatInterval = null;
+    
+    function startHeartbeat() {
+        if (heartbeatInterval) return;
+        
+        heartbeatInterval = setInterval(async () => {
+            try {
+                await fetch('/keep-alive');
+            } catch (e) {
+                console.log('Heartbeat failed:', e);
+            }
+        }, 30000); // Every 30 seconds
+    }
+    
+    function stopHeartbeat() {
+        if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+            heartbeatInterval = null;
+        }
+    }
     
     let selectedFiles = [];
     let activeJobs = {};
@@ -653,8 +1117,24 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     async function uploadAndProcess(file) {
+        // Start heartbeat for long uploads
+        startHeartbeat();
+        
+        // Reset stats when starting new upload
+        document.getElementById('frame-counter').classList.add('hidden');
+        document.getElementById('frame-progress').textContent = '0 / 0';
+        document.getElementById('detected-frames').textContent = '0';
+        
+        document.getElementById('upload-stats').classList.add('hidden');
+        document.getElementById('upload-size').textContent = '0 MB / 0 MB';
+        document.getElementById('upload-speed').textContent = '0 MB/s';
+        document.getElementById('upload-eta').textContent = '0s';
+        
         const jobId = await chunkedUpload(file);
-        if (!jobId) return; // Upload failed
+        if (!jobId) {
+            stopHeartbeat();
+            return; // Upload failed
+        }
         
         try {
             updateProgress(`Zpracovávám ${file.name}`, 30);
@@ -680,6 +1160,22 @@ document.addEventListener('DOMContentLoaded', function() {
     async function chunkedUpload(file) {
         const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const startTime = Date.now();
+        let uploadedBytes = 0;
+        
+        // Format file size
+        function formatBytes(bytes) {
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+            return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        }
+        
+        // Format time
+        function formatTime(seconds) {
+            if (seconds < 60) return `${Math.round(seconds)}s`;
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = Math.round(seconds % 60);
+            return `${minutes}m ${remainingSeconds}s`;
+        }
         
         try {
             // Initialize upload
@@ -701,14 +1197,49 @@ document.addEventListener('DOMContentLoaded', function() {
             const { job_id, chunk_size, total_chunks } = await initResponse.json();
             activeJobs[job_id] = { file: file.name, status: 'uploading', originalFile: file };
             
-            // Upload chunks
+            // Check for existing upload to resume
+            let uploadedChunks = new Set();
+            try {
+                const resumeResponse = await fetch(`/upload/resume/${job_id}`);
+                if (resumeResponse.ok) {
+                    const resumeData = await resumeResponse.json();
+                    if (resumeData.uploaded_chunks) {
+                        uploadedChunks = new Set(resumeData.uploaded_chunks);
+                        console.log(`Resuming upload: ${uploadedChunks.size}/${total_chunks} chunks already uploaded`);
+                    }
+                }
+            } catch (e) {
+                console.log('No resume data available, starting fresh');
+            }
+            
+            // Upload chunks (skip already uploaded ones)
             for (let chunkIndex = 0; chunkIndex < total_chunks; chunkIndex++) {
+                // Skip if chunk already uploaded
+                if (uploadedChunks.has(chunkIndex)) {
+                    console.log(`Skipping already uploaded chunk ${chunkIndex}`);
+                    continue;
+                }
                 const start = chunkIndex * chunk_size;
                 const end = Math.min(start + chunk_size, file.size);
                 const chunk = file.slice(start, end);
                 
+                // Calculate upload stats
+                uploadedBytes = Math.min(end, file.size); // Use end of current chunk, not start
+                const elapsedSeconds = Math.max(0.1, (Date.now() - startTime) / 1000); // Avoid division by zero
+                const uploadSpeed = uploadedBytes / elapsedSeconds; // bytes per second
+                const remainingBytes = file.size - uploadedBytes;
+                const eta = uploadSpeed > 0 ? remainingBytes / uploadSpeed : 0;
+                
                 const progress = Math.round((chunkIndex / total_chunks) * 25); // Upload is 0-25% of total progress
-                updateProgress(`Nahrávám ${file.name}`, progress);
+                const uploadMessage = `Nahrávám: ${formatBytes(uploadedBytes)} / ${formatBytes(file.size)} (${formatBytes(uploadSpeed)}/s) - zbývá ${formatTime(eta)}`;
+                
+                updateProgress(uploadMessage, progress, {
+                    upload_phase: true,
+                    uploaded_bytes: uploadedBytes,
+                    total_bytes: file.size,
+                    upload_speed: uploadSpeed,
+                    eta_seconds: eta
+                });
                 
                 // Upload chunk with retry logic
                 let retryCount = 0;
@@ -746,7 +1277,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
             
-            updateProgress(`Upload ${file.name} dokončen`, 25);
+            // Final upload stats
+            const totalTime = (Date.now() - startTime) / 1000;
+            const avgSpeed = file.size / totalTime;
+            updateProgress(`Upload dokončen: ${formatBytes(file.size)} za ${formatTime(totalTime)} (průměr ${formatBytes(avgSpeed)}/s)`, 25);
             return job_id;
             
         } catch (error) {
@@ -771,7 +1305,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 const data = await response.json();
                 console.log(`Poll ${pollCount}: Job ${jobId}`, data);
                 
-                updateProgress(data.message, data.progress);
+                // Pass frame data if available
+                updateProgress(data.message, data.progress, {
+                    current_frame: data.current_frame,
+                    total_frames: data.total_frames,
+                    detected_frames: data.detected_frames,
+                    bend_frames: data.bend_frames,
+                    failed_detections: data.failed_detections
+                });
                 
                 if (data.status === 'completed') {
                     clearInterval(pollInterval);
@@ -849,6 +1390,9 @@ document.addEventListener('DOMContentLoaded', function() {
         );
         
         if (allCompleted) {
+            // Stop heartbeat when all jobs complete
+            stopHeartbeat();
+            
             // Hide progress toast after a brief delay to show completion
             setTimeout(() => {
                 progressToast.classList.add('hidden');
@@ -857,10 +1401,55 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function updateProgress(message, percent) {
+    function updateProgress(message, percent, data = null) {
         document.getElementById('progress-title').textContent = message;
-        document.getElementById('progress-detail').textContent = `${percent}% dokončeno`;
+        document.getElementById('progress-detail').textContent = `${Math.round(percent)}% dokončeno`;
         document.getElementById('progress-bar').style.width = `${percent}%`;
+        
+        // Format bytes for display
+        function formatBytesSimple(bytes) {
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+            return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        }
+        
+        // Format time for display
+        function formatTimeSimple(seconds) {
+            if (isNaN(seconds) || seconds === Infinity) return "počítám...";
+            if (seconds < 60) return `${Math.round(seconds)}s`;
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = Math.round(seconds % 60);
+            return `${minutes}m ${remainingSeconds}s`;
+        }
+        
+        // Hide both sections initially
+        document.getElementById('upload-stats').classList.add('hidden');
+        document.getElementById('frame-counter').classList.add('hidden');
+        
+        // Update upload stats if in upload phase
+        if (data && data.upload_phase) {
+            const uploadStats = document.getElementById('upload-stats');
+            uploadStats.classList.remove('hidden');
+            
+            document.getElementById('upload-size').textContent = 
+                `${formatBytesSimple(data.uploaded_bytes || 0)} / ${formatBytesSimple(data.total_bytes || 0)}`;
+            
+            document.getElementById('upload-speed').textContent = 
+                `${formatBytesSimple(data.upload_speed || 0)}/s`;
+            
+            document.getElementById('upload-eta').textContent = 
+                formatTimeSimple(data.eta_seconds || 0);
+        }
+        // Update frame counter if we have frame data
+        else if (data && data.total_frames > 0) {
+            const frameCounter = document.getElementById('frame-counter');
+            frameCounter.classList.remove('hidden');
+            
+            document.getElementById('frame-progress').textContent = 
+                `${data.current_frame} / ${data.total_frames}`;
+            
+            document.getElementById('detected-frames').textContent = 
+                data.detected_frames || 0;
+        }
     }
 
     function showError(message) {
@@ -967,6 +1556,22 @@ def health_check():
         'active_jobs': len(active_jobs)
     }), 200
 
+@app.route('/keep-alive')
+def keep_alive():
+    """Keep session alive during long uploads"""
+    if 'username' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    # Refresh session
+    session.permanent = True
+    session.modified = True
+    
+    return jsonify({
+        'status': 'alive',
+        'timestamp': time.time(),
+        'user': session['username']
+    })
+
 @app.route('/upload/cleanup/<job_id>', methods=['DELETE'])
 def cleanup_upload(job_id):
     """Clean up failed or cancelled upload"""
@@ -1055,6 +1660,27 @@ def admin_logs():
     except Exception as e:
         return f"Error reading logs: {str(e)}"
 
+@app.route('/upload/resume/<job_id>')
+def get_upload_status(job_id):
+    """Get upload status for resume capability"""
+    if 'username' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    job = load_job(job_id)
+    if not job:
+        return jsonify({'error': 'Upload session not found'}), 404
+    
+    uploaded_chunks = get_uploaded_chunks(job_id)
+    
+    return jsonify({
+        'job_id': job_id,
+        'status': job.get('status'),
+        'uploaded_chunks': list(uploaded_chunks),
+        'total_chunks': job.get('total_chunks'),
+        'chunk_size': job.get('chunk_size'),
+        'progress': len(uploaded_chunks) / job.get('total_chunks', 1) * 100
+    })
+
 @app.route('/upload/init', methods=['POST'])
 def init_upload():
     """Initialize chunked upload"""
@@ -1082,19 +1708,21 @@ def init_upload():
     total_chunks = (filesize + chunk_size - 1) // chunk_size
     
     # Store upload session info
-    active_jobs[job_id] = {
+    job_data = {
+        'job_id': job_id,
         'filename': upload_filename,
         'filepath': upload_filepath,
         'original_name': filename,
         'filesize': filesize,
         'chunk_size': chunk_size,
         'total_chunks': total_chunks,
-        'uploaded_chunks': set(),
         'status': 'uploading',
         'upload_progress': 0,
         'user': session['username'],
-        'created_at': datetime.now()
+        'created_at': datetime.now().isoformat(),
+        'updated_at': time.time()
     }
+    save_job(job_id, job_data)
     
     # Create empty file
     with open(upload_filepath, 'wb') as f:
@@ -1116,10 +1744,10 @@ def upload_chunk(job_id, chunk_index):
     if 'username' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
     
-    if job_id not in active_jobs:
+    # Load job from persistent storage
+    job = load_job(job_id)
+    if not job:
         return jsonify({'error': 'Upload session not found'}), 404
-    
-    job = active_jobs[job_id]
     
     if job['status'] != 'uploading':
         return jsonify({'error': 'Upload session not active'}), 400
@@ -1128,8 +1756,9 @@ def upload_chunk(job_id, chunk_index):
         return jsonify({'error': 'Invalid chunk index'}), 400
     
     # Check if chunk already uploaded (for resumability)
-    if chunk_index in job['uploaded_chunks']:
-        return jsonify({'status': 'already_uploaded', 'progress': len(job['uploaded_chunks']) / job['total_chunks'] * 100})
+    uploaded_chunks = get_uploaded_chunks(job_id)
+    if chunk_index in uploaded_chunks:
+        return jsonify({'status': 'already_uploaded', 'progress': len(uploaded_chunks) / job['total_chunks'] * 100})
     
     try:
         # Get chunk data
@@ -1142,21 +1771,28 @@ def upload_chunk(job_id, chunk_index):
             f.seek(chunk_index * job['chunk_size'])
             f.write(chunk_data)
         
+        # Save uploaded chunk for resume capability
+        save_uploaded_chunk(job_id, chunk_index)
+        
         # Update progress
-        job['uploaded_chunks'].add(chunk_index)
-        progress = len(job['uploaded_chunks']) / job['total_chunks'] * 100
+        uploaded_chunks = get_uploaded_chunks(job_id)
+        progress = len(uploaded_chunks) / job['total_chunks'] * 100
         job['upload_progress'] = progress
+        job['updated_at'] = time.time()
         
         # Check if upload is complete
-        if len(job['uploaded_chunks']) == job['total_chunks']:
+        if len(uploaded_chunks) == job['total_chunks']:
             job['status'] = 'uploaded'
             log_user_action(session['username'], 'file_upload', f'Uploaded file: {job["original_name"]}')
             logger.info(f"Upload completed: {job['filename']} by {session['username']}")
         
+        # Save updated job data
+        save_job(job_id, job)
+        
         return jsonify({
             'status': 'success',
             'progress': progress,
-            'uploaded_chunks': len(job['uploaded_chunks']),
+            'uploaded_chunks': len(uploaded_chunks),
             'total_chunks': job['total_chunks'],
             'upload_complete': job['status'] == 'uploaded'
         })
@@ -1259,6 +1895,45 @@ def start_processing():
     
     return jsonify({'status': 'processing'})
 
+def monitor_progress_file(job_id, progress_file, process):
+    """Monitor progress file and update job status"""
+    job = active_jobs[job_id]
+    last_update = 0
+    
+    try:
+        while process.poll() is None:  # While process is running
+            if os.path.exists(progress_file):
+                try:
+                    with open(progress_file, 'r', encoding='utf-8') as f:
+                        progress_data = json.load(f)
+                    
+                    # Update job with detailed progress
+                    job['progress'] = min(90, 20 + (progress_data['percent'] * 0.7))  # Scale to 20-90%
+                    job['current_frame'] = progress_data.get('current_frame', 0)
+                    job['total_frames'] = progress_data.get('total_frames', 0)
+                    job['phase'] = progress_data.get('phase', 'processing')
+                    job['message'] = progress_data.get('message', 'Zpracovávám video...')
+                    job['detected_frames'] = progress_data.get('detected_frames', 0)
+                    job['bend_frames'] = progress_data.get('bend_frames', 0)
+                    job['failed_detections'] = progress_data.get('failed_detections', 0)
+                    
+                    last_update = time.time()
+                except Exception as e:
+                    logger.debug(f"Could not read progress file: {e}")
+            
+            time.sleep(0.5)  # Check every 500ms
+    
+    except Exception as e:
+        logger.error(f"Progress monitoring error for job {job_id}: {e}")
+    
+    finally:
+        # Clean up progress file
+        if os.path.exists(progress_file):
+            try:
+                os.remove(progress_file)
+            except:
+                pass
+
 def process_video_async(job_id):
     """Asynchronní zpracování videa"""
     try:
@@ -1275,17 +1950,33 @@ def process_video_async(job_id):
         job['progress'] = 20
         job['message'] = 'Spouští se ergonomická analýza...'
         
+        # Create progress file path
+        progress_file = os.path.join(app.config['OUTPUT_FOLDER'], f"{job_id}_progress.json")
+        job['progress_file'] = progress_file
+        
         # Use current python (should be conda python if app runs in conda environment)
-        cmd1_str = f'"{sys.executable}" main.py "{input_path}" "{output_video}" --model-complexity 2 --csv-export --no-progress'
+        cmd1_str = f'"{sys.executable}" main.py "{input_path}" "{output_video}" --model-complexity 2 --csv-export --no-progress --progress-file "{progress_file}"'
         
         # Set environment variables to handle encoding
         env = os.environ.copy()
         env['PYTHONIOENCODING'] = 'utf-8'
+        env['PYTHONUNBUFFERED'] = '1'  # Ensure unbuffered output
         
-        result1 = subprocess.run(cmd1_str, capture_output=True, text=True, shell=True, cwd=os.getcwd(), env=env, encoding='utf-8', errors='ignore')
+        # Start subprocess
+        process1 = subprocess.Popen(cmd1_str, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                                   shell=True, cwd=os.getcwd(), env=env, 
+                                   encoding='utf-8', errors='ignore')
         
-        if result1.returncode != 0:
-            error_msg = f"Video processing failed. Return code: {result1.returncode}\nSTDERR: {result1.stderr}\nSTDOUT: {result1.stdout}\nCommand: {cmd1_str}"
+        # Start progress monitoring thread
+        monitor_thread = Thread(target=monitor_progress_file, args=(job_id, progress_file, process1))
+        monitor_thread.daemon = True
+        monitor_thread.start()
+        
+        # Wait for process to complete
+        stdout, stderr = process1.communicate()
+        
+        if process1.returncode != 0:
+            error_msg = f"Video processing failed. Return code: {process1.returncode}\nSTDERR: {stderr}\nSTDOUT: {stdout}\nCommand: {cmd1_str}"
             raise Exception(error_msg)
             
         job['progress'] = 60
@@ -1317,10 +2008,43 @@ def process_video_async(job_id):
         job['status'] = 'completed'
         job['output_video'] = output_video
         job['output_excel'] = output_excel
+        job['completed_at'] = time.time()
+        
+        # Update job data structure for email compatibility
+        if 'files' not in job:
+            job['files'] = []
+        
+        job['files'].append({
+            'original_name': original_name,
+            'video': output_video,
+            'report': output_excel
+        })
+        
+        # Save completed job
+        save_job(job_id, job)
         
         log_user_action(job['user'], 'processing_completed', f'Processed: {original_name}')
         logger.info(f"Processing completed for job {job_id}")
         logger.info(f"Job {job_id} files: video={job['output_video']}, excel={job['output_excel']}")
+        
+        # Trigger email notification if user has email notifications enabled
+        username = job.get('username') or job.get('user')  # Kompatibilita se starými daty
+        user_info = WHITELIST_USERS.get(username, {})
+        
+        if user_info.get('email_notifications', False) and user_info.get('email'):
+            logger.info(f"Queuing email notification for user {username}")
+            email_queue.put({
+                'job_data': {
+                    'id': job_id,
+                    'username': username,
+                    'files': job['files'],
+                    'status': 'completed',
+                    'completed_at': job['completed_at']
+                },
+                'retry_count': 0
+            })
+        else:
+            logger.info(f"Email notifications disabled or no email configured for user {username}")
         
     except Exception as e:
         job['status'] = 'error'
@@ -1356,11 +2080,17 @@ def get_progress(job_id):
                 data = {
                     'status': current_status,
                     'progress': current_progress,
-                    'message': current_message
+                    'message': current_message,
+                    'phase': job.get('phase', 'processing'),
+                    'current_frame': job.get('current_frame', 0),
+                    'total_frames': job.get('total_frames', 0),
+                    'detected_frames': job.get('detected_frames', 0),
+                    'bend_frames': job.get('bend_frames', 0),
+                    'failed_detections': job.get('failed_detections', 0)
                 }
-                yield f"data: {json.dumps(data)}\n\n"
+                yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
                 last_progress = current_progress
-                logger.info(f"SSE: Sent update for job {job_id}: {data}")
+                logger.info(f"SSE: Sent update for job {job_id}: status={current_status}, progress={current_progress}, frames={data.get('current_frame')}/{data.get('total_frames')}")
                 
             if current_status == 'completed':
                 # Send final completion message
@@ -1397,15 +2127,21 @@ def get_job_status(job_id):
     if 'username' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
         
-    if job_id not in active_jobs:
+    # Load job from persistent storage
+    job = load_job(job_id)
+    if not job:
         return jsonify({'error': 'Job not found'}), 404
-        
-    job = active_jobs[job_id]
     
     response_data = {
         'status': job.get('status', 'unknown'),
         'progress': job.get('progress', 0),
         'message': job.get('message', 'Processing...'),
+        'current_frame': job.get('current_frame', 0),
+        'total_frames': job.get('total_frames', 0),
+        'detected_frames': job.get('detected_frames', 0),
+        'bend_frames': job.get('bend_frames', 0),
+        'failed_detections': job.get('failed_detections', 0),
+        'phase': job.get('phase', 'processing')
     }
     
     if job.get('status') == 'completed':
@@ -1450,6 +2186,51 @@ def download_result(job_id, file_type):
     except Exception as e:
         logger.error(f"Download error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/download/token/<token>')
+def download_with_token(token):
+    """Download files using secure token (for email links)"""
+    try:
+        # Verify token
+        result = email_service.verify_download_token(token)
+        if not result:
+            return jsonify({'error': 'Invalid or expired download link'}), 401
+        
+        job_id, filename = result
+        
+        # Load job data
+        job = load_job(job_id)
+        if not job:
+            return jsonify({'error': 'Job not found'}), 404
+        
+        if job['status'] != 'completed':
+            return jsonify({'error': 'Processing not completed'}), 400
+        
+        # Find the file path
+        filepath = None
+        files = job.get('files', [])
+        
+        for file_info in files:
+            if file_info.get('video') and os.path.basename(file_info['video']) == filename:
+                filepath = file_info['video']
+                break
+            elif file_info.get('report') and os.path.basename(file_info['report']) == filename:
+                filepath = file_info['report']
+                break
+        
+        if not filepath or not os.path.exists(filepath):
+            return jsonify({'error': 'File not found'}), 404
+        
+        # Log download
+        username = job.get('username', 'unknown')
+        log_user_action(username, 'email_download', f'Downloaded via email: {filename}')
+        logger.info(f"Token download: {filename} by {username}")
+        
+        return send_file(filepath, as_attachment=True, download_name=filename)
+        
+    except Exception as e:
+        logger.error(f"Token download error: {str(e)}")
+        return jsonify({'error': 'Download failed'}), 500
 
 # Error handlers
 @app.errorhandler(413)

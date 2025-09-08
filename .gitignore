@@ -1,3 +1,6 @@
+# Environment variables (obsahují citlivé údaje)
+.env
+
 # Video files
 *.mp4
 *.avi
@@ -6,3 +9,21 @@
 *.wmv
 *.flv
 *.webm
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+temp/
+nul
+
+# Test files
+test_real_email.py
+test_email_functionality.py

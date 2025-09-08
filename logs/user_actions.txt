@@ -26,3 +26,22 @@
 2025-08-28 14:58:04 - User: vaclavik - Action: processing_completed - Details: Processed: input_video.mp4
 2025-08-28 14:58:31 - User: vaclavik - Action: processing_completed - Details: Processed: test.mp4
 2025-08-28 15:00:36 - User: vaclavik - Action: processing_completed - Details: Processed: input_video.mp4
+2025-09-05 18:03:12 - User: vaclavik - Action: upload_init - Details: Started upload: test.mp4 (58024663 bytes, 56 chunks)
+2025-09-05 18:03:13 - User: vaclavik - Action: file_upload - Details: Uploaded file: test.mp4
+2025-09-05 18:04:12 - User: vaclavik - Action: processing_completed - Details: Processed: test.mp4
+2025-09-05 18:04:15 - User: vaclavik - Action: file_download - Details: Downloaded: test_analyzed.mp4
+2025-09-05 18:04:33 - User: vaclavik - Action: upload_init - Details: Started upload: MVI_8721.MOV (2118591648 bytes, 2021 chunks)
+2025-09-05 18:05:28 - User: vaclavik - Action: upload_init - Details: Started upload: MVI_8721.MOV (2118591648 bytes, 2021 chunks)
+2025-09-05 18:10:12 - User: vaclavik - Action: upload_init - Details: Started upload: test.mp4 (58024663 bytes, 56 chunks)
+2025-09-05 18:10:13 - User: vaclavik - Action: file_upload - Details: Uploaded file: test.mp4
+2025-09-05 18:10:51 - User: vaclavik - Action: upload_init - Details: Started upload: MVI_8721.MOV (2118591648 bytes, 2021 chunks)
+2025-09-05 18:12:02 - User: vaclavik - Action: upload_init - Details: Started upload: fil_vid.mov (6921732 bytes, 7 chunks)
+2025-09-05 18:12:02 - User: vaclavik - Action: file_upload - Details: Uploaded file: fil_vid.mov
+2025-09-05 18:13:48 - User: vaclavik - Action: processing_completed - Details: Processed: fil_vid.mov
+2025-09-05 18:13:52 - User: vaclavik - Action: file_download - Details: Downloaded: fil_vid_analyzed.mp4
+2025-09-05 18:13:53 - User: vaclavik - Action: file_download - Details: Downloaded: fil_vid_report.xlsx
+2025-09-08 12:11:15 - User: vaclavik - Action: email_download - Details: Downloaded via email: test_analyzed.mp4
+2025-09-08 12:11:34 - User: vaclavik - Action: email_download - Details: Downloaded via email: test_analyzed.mp4
+2025-09-08 12:11:51 - User: vaclavik - Action: email_download - Details: Downloaded via email: test_analyzed.mp4
+2025-09-08 12:12:16 - User: vaclavik - Action: email_download - Details: Downloaded via email: test_analyzed.mp4
+2025-09-08 12:27:52 - User: vaclavik - Action: email_download - Details: Downloaded via email: test_analyzed.mp4

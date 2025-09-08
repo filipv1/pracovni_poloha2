@@ -4,6 +4,9 @@ from typing import Optional, Dict, List
 import os
 from tqdm import tqdm
 import logging
+import json
+import time
+from pathlib import Path
 
 from .video_processor import VideoInputHandler, VideoOutputHandler
 from .pose_detector import PoseDetector, PoseResults
@@ -22,7 +25,8 @@ class TrunkAnalysisProcessor:
                  min_detection_confidence: float = 0.5,
                  bend_threshold: float = 60.0,
                  smoothing_window: int = 5,
-                 export_csv: bool = False):
+                 export_csv: bool = False,
+                 progress_file: Optional[str] = None):
         """
         Inicializace procesoru
         
@@ -34,11 +38,13 @@ class TrunkAnalysisProcessor:
             bend_threshold: Práh pro detekci ohnutí ve stupních
             smoothing_window: Velikost okna pro temporal smoothing
             export_csv: Zda exportovat data do CSV souboru
+            progress_file: Cesta k souboru pro zápis progress informací
         """
         self.input_path = input_path
         self.output_path = output_path
         self.bend_threshold = bend_threshold
         self.export_csv = export_csv
+        self.progress_file = progress_file
         
         # Validace vstupního souboru
         if not os.path.exists(input_path):
@@ -102,6 +108,45 @@ class TrunkAnalysisProcessor:
         """
         return self.video_info
     
+    def _write_progress(self, frame_number: int, total_frames: int, phase: str = "processing", message: str = None):
+        """
+        Zapíše progress informace do JSON souboru
+        
+        Args:
+            frame_number: Aktuální číslo snímku
+            total_frames: Celkový počet snímků
+            phase: Fáze zpracování
+            message: Volitelná zpráva
+        """
+        if not self.progress_file:
+            return
+            
+        try:
+            percent = (frame_number / total_frames * 100) if total_frames > 0 else 0
+            progress_data = {
+                "current_frame": frame_number,
+                "total_frames": total_frames,
+                "percent": round(percent, 2),
+                "phase": phase,
+                "message": message or f"Zpracovávám snímek {frame_number}/{total_frames}",
+                "timestamp": time.time(),
+                "detected_frames": self.processing_stats.get('processed_frames', 0),
+                "bend_frames": self.processing_stats.get('bend_frames', 0),
+                "failed_detections": self.processing_stats.get('failed_detections', 0)
+            }
+            
+            # Atomický zápis pomocí temp souboru
+            temp_file = f"{self.progress_file}.tmp"
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(progress_data, f, ensure_ascii=False)
+            
+            # Atomicky přesunout temp file
+            if os.path.exists(temp_file):
+                os.replace(temp_file, self.progress_file)
+                
+        except Exception as e:
+            self.logger.debug(f"Could not write progress file: {e}")
+    
     def process_video(self, show_progress: bool = True) -> Dict:
         """
         Zpracuje celé video a vytvoří výstup s analýzou
@@ -129,6 +174,9 @@ class TrunkAnalysisProcessor:
         progress_step = max(1, total_frames // 50)  # 50 teček pro progress
         next_progress = progress_step
         
+        # Initial progress write
+        self._write_progress(0, total_frames, "starting", "Inicializuji analýzu...")
+        
         try:
             for frame in self.input_handler.read_frames():
                 frame_number += 1
@@ -145,6 +193,10 @@ class TrunkAnalysisProcessor:
                     print(".", end="", flush=True)
                     next_progress += progress_step
                 
+                # Write progress to file každých 10 snímků
+                if frame_number % 10 == 0 or frame_number == 1 or frame_number == total_frames:
+                    self._write_progress(frame_number, total_frames, "processing")
+                
                 # Periodické logování s procentem
                 if frame_number % 100 == 0:
                     percent = (frame_number / total_frames) * 100
@@ -158,6 +210,9 @@ class TrunkAnalysisProcessor:
             # Cleanup
             print("] DOKONCENO!", flush=True)
             
+            # Write final progress
+            self._write_progress(frame_number, total_frames, "finalizing", "Finalizuji video...")
+            
             self.output_handler.finalize()
             
             # Finalizace CSV exportu
@@ -165,6 +220,9 @@ class TrunkAnalysisProcessor:
                 self.csv_exporter.finalize()
                 csv_stats = self.csv_exporter.get_export_statistics()
                 self.logger.info(f"CSV export dokončen: {csv_stats['exported_records']} záznamů")
+            
+            # Write completed progress
+            self._write_progress(total_frames, total_frames, "completed", "Analýza dokončena!")
             
             self.logger.info("Zpracování dokončeno")
         
