@@ -440,7 +440,12 @@ class ResendEmailService:
                         if file_type != 'original_name' and filepath and os.path.exists(filepath):
                             filename = os.path.basename(filepath)
                             token = self.generate_download_token(job_id, filename)
-                            download_url = f"https://{self.app.config.get('SERVER_NAME', 'localhost')}/download/token/{token}"
+                            # Get correct domain for Railway
+                            server_name = self.app.config.get('SERVER_NAME') or os.environ.get('RAILWAY_STATIC_URL') or 'pracpol2-production.up.railway.app'
+                            if server_name.startswith('http'):
+                                download_url = f"{server_name}/download/token/{token}"
+                            else:
+                                download_url = f"https://{server_name}/download/token/{token}"
                             
                             download_links.append({
                                 'filename': filename,
@@ -453,7 +458,12 @@ class ResendEmailService:
                     if filepath and os.path.exists(filepath):
                         filename = os.path.basename(filepath)
                         token = self.generate_download_token(job_id, filename)
-                        download_url = f"https://{self.app.config.get('SERVER_NAME', 'localhost')}/download/token/{token}"
+                        # Get correct domain for Railway
+                        server_name = self.app.config.get('SERVER_NAME') or os.environ.get('RAILWAY_STATIC_URL') or 'pracpol2-production.up.railway.app'
+                        if server_name.startswith('http'):
+                            download_url = f"{server_name}/download/token/{token}"
+                        else:
+                            download_url = f"https://{server_name}/download/token/{token}"
                         
                         download_links.append({
                             'filename': filename,
@@ -847,7 +857,8 @@ def email_worker():
             email_queue.task_done()
             
         except Exception as worker_error:
-            if "timeout" not in str(worker_error).lower():  # Ignoruj queue timeout chyby
+            # Ignoruj normální queue timeout chyby (Queue.Empty exception)
+            if "empty" not in str(worker_error).lower() and "timeout" not in str(worker_error).lower():
                 logger.error(f"Email worker: Unexpected error in main loop: {type(worker_error).__name__}: {worker_error}")
             continue
 
