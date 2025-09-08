@@ -23,6 +23,7 @@ from flask_mail import Mail, Message
 import hashlib
 import hmac
 import base64
+import requests
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -364,8 +365,236 @@ Děkujeme za použití naší aplikace pro analýzu pracovní polohy.
             logger.error(f"Failed to send email for job {job_id}: {type(e).__name__}: {e}")
             return False
 
-# Initialize email service
-email_service = EmailService(app, mail)
+class ResendEmailService:
+    """HTTP API based email service using Resend.com"""
+    
+    def __init__(self, app):
+        self.app = app
+        self.secret_key = app.secret_key.encode()
+        self.api_key = os.environ.get('RESEND_API_KEY')
+        self.api_url = "https://api.resend.com/emails"
+        self.enabled = bool(self.api_key)
+        
+    def generate_download_token(self, job_id, filename, expiry_hours=168):
+        """Generate secure download token (same as EmailService)"""
+        expiry_time = int(time.time()) + (expiry_hours * 3600)
+        payload = f"{job_id}:{filename}:{expiry_time}"
+        signature = hmac.new(self.secret_key, payload.encode(), hashlib.sha256).hexdigest()
+        token = base64.urlsafe_b64encode(f"{payload}:{signature}".encode()).decode()
+        return token
+        
+    def verify_download_token(self, token):
+        """Verify download token (same as EmailService)"""
+        try:
+            decoded = base64.urlsafe_b64decode(token.encode()).decode()
+            parts = decoded.split(':')
+            if len(parts) != 4:
+                return None
+                
+            job_id, filename, expiry_str, signature = parts
+            
+            # Verify signature
+            expected_payload = f"{job_id}:{filename}:{expiry_str}"
+            expected_signature = hmac.new(self.secret_key, expected_payload.encode(), hashlib.sha256).hexdigest()
+            
+            if not hmac.compare_digest(signature, expected_signature):
+                return None
+                
+            # Check expiry
+            expiry_time = int(expiry_str)
+            if time.time() > expiry_time:
+                return None
+                
+            return {'job_id': job_id, 'filename': filename}
+        except Exception:
+            return None
+            
+    def send_completion_email(self, job_data):
+        """Send completion email via Resend HTTP API"""
+        if not self.enabled:
+            logger.error("Resend API key not configured")
+            return False
+            
+        job_id = job_data.get('id')
+        username = job_data.get('username')
+        
+        try:
+            # Get user info
+            user_info = WHITELIST_USERS.get(username, {})
+            user_email = user_info.get('email')
+            user_name = user_info.get('name', username)
+            
+            if not user_email:
+                logger.warning(f"No email configured for user {username}")
+                return False
+                
+            # Create download links
+            files = job_data.get('files', {})
+            download_links = []
+            
+            for file_type, filepath in files.items():
+                if filepath and os.path.exists(filepath):
+                    filename = os.path.basename(filepath)
+                    token = self.generate_download_token(job_id, filename)
+                    download_url = f"https://{self.app.config.get('SERVER_NAME', 'localhost')}/download/token/{token}"
+                    
+                    download_links.append({
+                        'filename': filename,
+                        'type': file_type,
+                        'url': download_url
+                    })
+            
+            if not download_links:
+                logger.warning(f"No files to send for job {job_id}")
+                return False
+                
+            # Prepare email data for Resend API
+            file_count = len(download_links)
+            html_body = self.get_email_template(user_name, file_count, download_links)
+            
+            email_data = {
+                "from": "Ergonomic Analysis <noreply@resend.dev>",  # Resend sandbox domain
+                "to": [user_email],
+                "subject": f"✅ Analýza dokončena - {file_count} souborů",
+                "html": html_body
+            }
+            
+            # Send via Resend HTTP API
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            logger.info(f"Sending email via Resend API for job {job_id} to {user_email}")
+            start_time = time.time()
+            
+            response = requests.post(
+                self.api_url, 
+                json=email_data, 
+                headers=headers,
+                timeout=30
+            )
+            
+            end_time = time.time()
+            
+            if response.status_code == 200:
+                logger.info(f"Resend API: Email sent successfully for job {job_id} in {end_time - start_time:.2f}s")
+                return True
+            else:
+                logger.error(f"Resend API error for job {job_id}: {response.status_code} - {response.text}")
+                return False
+                
+        except requests.exceptions.Timeout:
+            logger.error(f"Resend API timeout for job {job_id}")
+            return False
+        except Exception as e:
+            logger.error(f"Resend API error for job {job_id}: {type(e).__name__}: {e}")
+            return False
+            
+    def get_email_template(self, user_name, file_count, download_links):
+        """HTML email template (same as EmailService)"""
+        links_html = ""
+        for link in download_links:
+            file_type_display = {
+                'video': 'Analyzované video',
+                'excel': 'Excel report',
+                'csv': 'CSV data'
+            }.get(link['type'], link['type'])
+            
+            links_html += f'''
+            <tr>
+                <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                    <strong>{file_type_display}:</strong> {link['filename']}<br>
+                    <a href="{link['url']}" style="color: #007bff; text-decoration: none;">📥 Stáhnout soubor</a>
+                </td>
+            </tr>
+            '''
+        
+        return f'''
+        <html>
+        <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+            <div style="max-width: 600px; margin: 0 auto; background-color: white; border-radius: 10px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center;">
+                    <h1 style="margin: 0; font-size: 28px;">✅ Analýza dokončena!</h1>
+                    <p style="margin: 10px 0 0 0; opacity: 0.9;">Vaše soubory jsou připravené ke stažení</p>
+                </div>
+                
+                <div style="padding: 30px;">
+                    <p style="font-size: 18px; color: #333; margin-bottom: 20px;">Dobrý den {user_name},</p>
+                    
+                    <p style="color: #666; line-height: 1.6; margin-bottom: 25px;">
+                        vaše analýza pracovní polohy byla úspěšně dokončena. Připravili jsme pro vás <strong>{file_count} souborů</strong> ke stažení.
+                    </p>
+                    
+                    <div style="background-color: #f8f9fa; border-radius: 8px; padding: 20px; margin-bottom: 25px;">
+                        <h3 style="color: #333; margin: 0 0 15px 0;">📁 Vaše soubory:</h3>
+                        <table style="width: 100%; border-collapse: collapse;">
+                            {links_html}
+                        </table>
+                    </div>
+                    
+                    <div style="background-color: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin-bottom: 20px;">
+                        <p style="margin: 0; color: #1976d2; font-size: 14px;">
+                            <strong>ℹ️ Důležité informace:</strong><br>
+                            • Odkazy jsou platné 7 dní<br>
+                            • Soubory jsou zabezpečené pomocí tokenů<br>
+                            • Pro stažení klikněte na odkaz výše
+                        </p>
+                    </div>
+                </div>
+                
+                <div style="background-color: #f8f9fa; padding: 20px; text-align: center; border-top: 1px solid #eee;">
+                    <p style="margin: 0; color: #666; font-size: 14px;">
+                        Děkujeme za použití naší aplikace pro analýzu pracovní polohy.
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+        '''
+
+
+class HybridEmailService:
+    """Hybrid email service that tries HTTP API first, then falls back to SMTP"""
+    
+    def __init__(self, app, mail):
+        self.smtp_service = EmailService(app, mail)
+        self.resend_service = ResendEmailService(app)
+        self.app = app
+        
+    def generate_download_token(self, job_id, filename, expiry_hours=168):
+        # Use Resend service for token generation (both are identical)
+        return self.resend_service.generate_download_token(job_id, filename, expiry_hours)
+        
+    def verify_download_token(self, token):
+        # Use Resend service for token verification (both are identical)
+        return self.resend_service.verify_download_token(token)
+        
+    def send_completion_email(self, job_data):
+        """Try Resend API first, fallback to SMTP if it fails"""
+        job_id = job_data.get('id')
+        
+        # Try Resend HTTP API first (preferred on Railway)
+        if self.resend_service.enabled:
+            logger.info(f"Attempting Resend HTTP API for job {job_id}")
+            if self.resend_service.send_completion_email(job_data):
+                logger.info(f"Email sent via Resend HTTP API for job {job_id}")
+                return True
+            else:
+                logger.warning(f"Resend HTTP API failed for job {job_id}, trying SMTP fallback")
+        
+        # Fallback to SMTP (will work on Railway Pro plan or other platforms)
+        logger.info(f"Attempting SMTP fallback for job {job_id}")
+        if self.smtp_service.send_completion_email(job_data):
+            logger.info(f"Email sent via SMTP fallback for job {job_id}")
+            return True
+        else:
+            logger.error(f"Both Resend API and SMTP failed for job {job_id}")
+            return False
+
+
+# Initialize hybrid email service (HTTP API + SMTP fallback)
+email_service = HybridEmailService(app, mail)
 
 # Job persistence functions
 def save_job(job_id, job_data):
