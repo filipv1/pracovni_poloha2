@@ -452,9 +452,13 @@ class ResendEmailService:
             file_count = len(download_links)
             html_body = self.get_email_template(user_name, file_count, download_links)
             
+            # For Resend free plan, we can only send to the registered email
+            # In production, you would verify a domain to send to any email
+            registered_email = "vaclavik.renturi@gmail.com"  # Resend registered email
+            
             email_data = {
-                "from": "Ergonomic Analysis <noreply@resend.dev>",  # Resend sandbox domain
-                "to": [user_email],
+                "from": "Ergonomic Analysis <onboarding@resend.dev>",  # Resend sandbox domain
+                "to": [registered_email],  # Use registered email for free plan
                 "subject": f"✅ Analýza dokončena - {file_count} souborů",
                 "html": html_body
             }

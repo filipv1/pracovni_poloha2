@@ -33,15 +33,18 @@ def test_resend_api():
     print(f"API Key: {'*' * (len(api_key) - 8)}{api_key[-8:]}")
     print("")
     
+    # Get registered email (for Resend free plan limitation)
+    registered_email = "vaclavik.renturi@gmail.com"  # Must match Resend registration
+    
     # Test email data
     test_email = {
         "from": "Ergonomic Analysis <onboarding@resend.dev>",  # Resend sandbox domain
-        "to": ["vaclavik@renturi.cz"],
-        "subject": "🧪 TEST: Resend HTTP API Test",
+        "to": [registered_email],  # Must use registered email on free plan
+        "subject": "TEST: Resend HTTP API Test",
         "html": """
         <html>
         <body style="font-family: Arial, sans-serif; padding: 20px;">
-            <h2 style="color: #4CAF50;">✅ Resend API Test úspěšný!</h2>
+            <h2 style="color: #4CAF50;">Resend API Test uspesny!</h2>
             <p>Tento email byl odeslán pomocí <strong>Resend HTTP API</strong> místo SMTP.</p>
             
             <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
@@ -74,8 +77,9 @@ def test_resend_api():
     }
     
     print("Sending test email...")
-    print(f"To: {test_email['to'][0]}")
+    print(f"To: {test_email['to'][0]} (registered email)")
     print(f"Subject: {test_email['subject']}")
+    print("Note: Free plan can only send to registered email address")
     print("")
     
     try:
@@ -88,16 +92,16 @@ def test_resend_api():
         
         if response.status_code == 200:
             result = response.json()
-            print(f"✅ EMAIL SENT SUCCESSFULLY!")
+            print("EMAIL SENT SUCCESSFULLY!")
             print(f"Email ID: {result.get('id', 'N/A')}")
             print("")
-            print("Check your email inbox at vaclavik@renturi.cz")
+            print("Check your email inbox at vaclavik.renturi@gmail.com")
             print("")
-            print("🎉 Resend HTTP API is working correctly!")
+            print("Resend HTTP API is working correctly!")
             print("This means emails will work on Railway Hobby plan.")
             return True
         else:
-            print(f"❌ EMAIL SENDING FAILED")
+            print("EMAIL SENDING FAILED")
             print(f"Error: {response.text}")
             
             # Common error messages
@@ -111,15 +115,15 @@ def test_resend_api():
             return False
             
     except requests.exceptions.Timeout:
-        print("❌ REQUEST TIMEOUT")
+        print("REQUEST TIMEOUT")
         print("API request took too long (>30s)")
         return False
     except requests.exceptions.ConnectionError:
-        print("❌ CONNECTION ERROR")
+        print("CONNECTION ERROR")
         print("Cannot connect to Resend API")
         return False
     except Exception as e:
-        print(f"❌ UNEXPECTED ERROR: {e}")
+        print(f"UNEXPECTED ERROR: {e}")
         return False
 
 
@@ -142,19 +146,19 @@ def test_fallback_mechanism():
             resend_enabled = hybrid_service.resend_service.enabled
             smtp_configured = bool(app.config.get('MAIL_USERNAME'))
             
-            print(f"Resend API: {'✅ Enabled' if resend_enabled else '❌ Disabled'}")
-            print(f"SMTP: {'✅ Configured' if smtp_configured else '❌ Not configured'}")
+            print(f"Resend API: {'Enabled' if resend_enabled else 'Disabled'}")
+            print(f"SMTP: {'Configured' if smtp_configured else 'Not configured'}")
             print("")
             
             if resend_enabled:
-                print("🚀 Primary method: Resend HTTP API")
-                print("📧 Fallback method: SMTP")
-                print("✅ Railway Hobby plan compatible")
+                print("Primary method: Resend HTTP API")
+                print("Fallback method: SMTP")
+                print("Railway Hobby plan compatible")
             elif smtp_configured:
-                print("📧 Primary method: SMTP only")
-                print("⚠️ Requires Railway Pro plan")
+                print("Primary method: SMTP only")
+                print("Requires Railway Pro plan")
             else:
-                print("❌ No email service configured")
+                print("No email service configured")
                 
             return resend_enabled or smtp_configured
             
@@ -177,17 +181,17 @@ if __name__ == "__main__":
     print("=" * 60)
     
     if api_success:
-        print("✅ Resend HTTP API: Working")
-        print("✅ Railway Hobby plan: Compatible")
-        print("✅ No SMTP timeouts")
+        print("Resend HTTP API: Working")
+        print("Railway Hobby plan: Compatible")
+        print("No SMTP timeouts")
     else:
-        print("❌ Resend HTTP API: Failed")
+        print("Resend HTTP API: Failed")
         print("   Please check API key configuration")
     
     if fallback_success:
-        print("✅ Fallback mechanism: Available")
+        print("Fallback mechanism: Available")
     else:
-        print("❌ Fallback mechanism: Not available")
+        print("Fallback mechanism: Not available")
         
     print("\nNext steps:")
     if not api_success:
