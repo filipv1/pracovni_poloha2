@@ -1,0 +1,13 @@
+{
+  "id": "8b393374-3e08-4563-a967-33e32645b994",
+  "username": "vaclavik",
+  "status": "completed",
+  "files": [
+    {
+      "original_name": "test_video.mp4",
+      "video": "outputs\\test_analyzed.mp4",
+      "report": "outputs\\test_report.xlsx"
+    }
+  ],
+  "updated_at": 1757326311.8019574
+}
