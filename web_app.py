@@ -237,8 +237,11 @@ class EmailService:
         # Text fallback
         text_body = self.get_text_email_template(user_name, file_count, download_links)
         
+        # Add user identifier for Gmail filtering (same as Resend)
+        user_tag = username.upper()
+        
         msg = Message(
-            subject=f"✅ Analýza dokončena - {file_count} souborů",
+            subject=f"✅ [{user_tag}] Analýza dokončena - {file_count} souborů",
             recipients=[user_email],
             html=html_body,
             body=text_body
@@ -483,10 +486,13 @@ class ResendEmailService:
             # In production, you would verify a domain to send to any email
             registered_email = "vaclavik.renturi@gmail.com"  # Resend registered email
             
+            # Add user identifier for Gmail filtering
+            user_tag = username.upper()  # Convert to uppercase for visibility
+            
             email_data = {
                 "from": "Ergonomic Analysis <onboarding@resend.dev>",  # Resend sandbox domain
                 "to": [registered_email],  # Use registered email for free plan
-                "subject": f"✅ Analýza dokončena - {file_count} souborů",
+                "subject": f"✅ [{user_tag}] Analýza dokončena - {file_count} souborů",
                 "html": html_body
             }
             
