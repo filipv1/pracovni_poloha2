@@ -2540,7 +2540,12 @@ def download_with_token(token):
         if not result:
             return jsonify({'error': 'Invalid or expired download link'}), 401
         
-        job_id, filename = result
+        # Handle both tuple and dict formats
+        if isinstance(result, dict):
+            job_id = result['job_id']
+            filename = result['filename']
+        else:
+            job_id, filename = result
         
         # Load job data
         job = load_job(job_id)
