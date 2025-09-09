@@ -1737,13 +1737,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 </div>
                 <div class="flex space-x-2">
-                    <button onclick="generateDownloadLink('${jobId}', 'video')" class="btn btn-sm btn-primary">
+                    <button onclick="fetch('/api/generate-download-token/${jobId}/video').then(r=>r.json()).then(d=>d.error?alert('Error: '+d.error):window.open(d.download_url,'_blank')).catch(e=>alert('Chyba: '+e.message))" class="btn btn-sm btn-primary">
                         <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path>
                         </svg>
                         Video
                     </button>
-                    <button onclick="generateDownloadLink('${jobId}', 'excel')" class="btn btn-sm btn-success">
+                    <button onclick="fetch('/api/generate-download-token/${jobId}/excel').then(r=>r.json()).then(d=>d.error?alert('Error: '+d.error):window.open(d.download_url,'_blank')).catch(e=>alert('Chyba: '+e.message))" class="btn btn-sm btn-success">
                         <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path>
                         </svg>
