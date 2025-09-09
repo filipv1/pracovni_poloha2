@@ -2288,9 +2288,14 @@ def start_processing():
         return jsonify({'error': 'Not authenticated'}), 401
         
     job_id = request.json.get('job_id')
+    logger.info(f"Processing request received for job {job_id}")
     
     if job_id not in active_jobs:
+        logger.error(f"Job {job_id} not found in active_jobs")
         return jsonify({'error': 'Job not found'}), 404
+    
+    job = active_jobs[job_id]
+    logger.info(f"Job {job_id} current status: {job.get('status')}, file: {job.get('original_name')}")
         
     # Start background processing
     active_jobs[job_id]['status'] = 'processing'
@@ -2298,6 +2303,7 @@ def start_processing():
     thread.daemon = True
     thread.start()
     
+    logger.info(f"Started processing thread for job {job_id}")
     return jsonify({'status': 'processing'})
 
 def monitor_progress_file(job_id, progress_file, process):
@@ -2344,8 +2350,13 @@ def monitor_progress_file(job_id, progress_file, process):
 def process_video_async(job_id):
     """Asynchronní zpracování videa"""
     try:
-        logger.info(f"Starting async video processing for job {job_id}")
+        logger.info(f"=== THREAD STARTED: process_video_async for job {job_id} ===")
+        if job_id not in active_jobs:
+            logger.error(f"CRITICAL: Job {job_id} not found in active_jobs when thread started!")
+            return
+        
         job = active_jobs[job_id]
+        logger.info(f"Thread {job_id}: Job found, original_name: {job.get('original_name')}")
         input_path = job['filepath']
         original_name = job['original_name']
         logger.info(f"Processing {original_name}, input path: {input_path}")
@@ -2456,8 +2467,15 @@ def process_video_async(job_id):
             logger.info(f"Email notifications disabled or no email configured for user {username}")
         
     except Exception as e:
-        job['status'] = 'error'
-        job['message'] = f'Chyba při zpracování: {str(e)}'
+        logger.error(f"=== THREAD ERROR: process_video_async for job {job_id} ===")
+        logger.error(f"Exception type: {type(e).__name__}")
+        logger.error(f"Exception message: {str(e)}")
+        logger.error(f"Job data at time of error: {active_jobs.get(job_id, 'Job not found')}")
+        
+        if job_id in active_jobs:
+            job = active_jobs[job_id]
+            job['status'] = 'error'
+            job['message'] = f'Chyba při zpracování: {str(e)}'
         logger.error(f"Processing error for job {job_id}: {str(e)}")
 
 @app.route('/progress/<job_id>')
