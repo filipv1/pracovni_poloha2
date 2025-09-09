@@ -931,6 +931,29 @@ BASE_TEMPLATE = """
         .btn-hover { transition: all 0.2s ease; }
         .btn-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
         
+        /* Individual Progress Toast styles */
+        .progress-toast {
+            animation: slideInRight 0.3s ease-out;
+            max-height: 200px;
+            overflow: hidden;
+        }
+        
+        .progress-toast:hover {
+            transform: translateX(-5px);
+            transition: transform 0.2s ease;
+        }
+        
+        @keyframes slideInRight {
+            from { 
+                opacity: 0; 
+                transform: translateX(100px); 
+            } 
+            to { 
+                opacity: 1; 
+                transform: translateX(0); 
+            }
+        }
+        
         /* Dark mode variables */
         :root { 
             --bg-primary: #ffffff;
@@ -1300,56 +1323,9 @@ MAIN_TEMPLATE = """
         </div>
     </main>
     
-    <!-- Progress Toast -->
-    <div id="progress-toast" class="fixed bottom-20 right-4 hidden">
-        <div class="alert alert-info relative min-w-[400px]">
-            <button onclick="document.getElementById('progress-toast').classList.add('hidden')" class="absolute top-2 right-2 btn btn-ghost btn-xs">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                </svg>
-            </button>
-            <div class="pr-6">
-                <div class="flex items-center mb-2">
-                    <div class="spin-animation w-5 h-5 border-2 border-white border-t-transparent rounded-full mr-3"></div>
-                    <div>
-                        <div class="font-semibold" id="progress-title">Zpracovávám...</div>
-                        <div class="text-sm" id="progress-detail">Prosím počkejte</div>
-                    </div>
-                </div>
-                
-                <!-- Upload stats section -->
-                <div id="upload-stats" class="hidden text-sm space-y-1 mb-2">
-                    <div class="flex justify-between">
-                        <span>Nahráno:</span>
-                        <span id="upload-size">0 MB / 0 MB</span>
-                    </div>
-                    <div class="flex justify-between text-opacity-75">
-                        <span>Rychlost:</span>
-                        <span id="upload-speed">0 MB/s</span>
-                    </div>
-                    <div class="flex justify-between text-opacity-75">
-                        <span>Zbývá:</span>
-                        <span id="upload-eta">0s</span>
-                    </div>
-                </div>
-                
-                <!-- Frame counter section -->
-                <div id="frame-counter" class="hidden text-sm space-y-1 mb-2">
-                    <div class="flex justify-between">
-                        <span>Snímky:</span>
-                        <span id="frame-progress">0 / 0</span>
-                    </div>
-                    <div class="flex justify-between text-opacity-75">
-                        <span>Detekováno:</span>
-                        <span id="detected-frames">0</span>
-                    </div>
-                </div>
-                
-                <div class="w-full bg-base-300 rounded-full h-2 mt-2">
-                    <div id="progress-bar" class="bg-primary h-2 rounded-full progress-bar transition-all duration-500" style="width: 0%"></div>
-                </div>
-            </div>
-        </div>
+    <!-- Individual Progress Toasts Container -->
+    <div id="progress-toasts-container" class="fixed bottom-20 right-4 space-y-3 pointer-events-none z-50">
+        <!-- Individual progress windows for each file will be dynamically created here -->
     </div>
 </div>
 
@@ -1361,7 +1337,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const filesContainer = document.getElementById('files-container');
     const startProcessing = document.getElementById('start-processing');
     const resultsSection = document.getElementById('results-section');
-    const progressToast = document.getElementById('progress-toast');
+    const progressToastsContainer = document.getElementById('progress-toasts-container');
     
     // Heartbeat to keep session alive during long uploads
     let heartbeatInterval = null;
@@ -1387,6 +1363,82 @@ document.addEventListener('DOMContentLoaded', function() {
     
     let selectedFiles = [];
     let activeJobs = {};
+
+    // Create individual progress window for each file
+    function createProgressToast(jobId, filename) {
+        const toast = document.createElement('div');
+        toast.id = `progress-toast-${jobId}`;
+        toast.className = 'progress-toast pointer-events-auto fade-in';
+        
+        toast.innerHTML = `
+            <div class="alert alert-info relative min-w-[400px] max-w-[500px]">
+                <button onclick="removeProgressToast('${jobId}')" class="absolute top-2 right-2 btn btn-ghost btn-xs">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+                <div class="pr-6">
+                    <div class="flex items-center mb-2">
+                        <div class="spin-animation w-5 h-5 border-2 border-white border-t-transparent rounded-full mr-3"></div>
+                        <div class="flex-1">
+                            <div class="font-semibold text-sm" id="progress-title-${jobId}">Zpracovávám...</div>
+                            <div class="text-xs text-gray-600 truncate" title="${filename}">${filename}</div>
+                            <div class="text-sm" id="progress-detail-${jobId}">Prosím počkejte</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Frame counter section -->
+                    <div id="frame-counter-${jobId}" class="hidden text-sm space-y-1 mb-2">
+                        <div class="flex justify-between">
+                            <span>Snímky:</span>
+                            <span id="frame-progress-${jobId}">0 / 0</span>
+                        </div>
+                        <div class="flex justify-between text-opacity-75">
+                            <span>Detekováno:</span>
+                            <span id="detected-frames-${jobId}">0</span>
+                        </div>
+                    </div>
+                    
+                    <div class="w-full bg-base-300 rounded-full h-2 mt-2">
+                        <div id="progress-bar-${jobId}" class="bg-primary h-2 rounded-full progress-bar transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        progressToastsContainer.appendChild(toast);
+        return toast;
+    }
+
+    // Remove individual progress toast
+    function removeProgressToast(jobId) {
+        const toast = document.getElementById(`progress-toast-${jobId}`);
+        if (toast) {
+            toast.remove();
+        }
+    }
+
+    // Update individual progress toast
+    function updateIndividualProgress(jobId, message, percent, data = null) {
+        const titleEl = document.getElementById(`progress-title-${jobId}`);
+        const detailEl = document.getElementById(`progress-detail-${jobId}`);
+        const barEl = document.getElementById(`progress-bar-${jobId}`);
+        
+        if (titleEl) titleEl.textContent = message;
+        if (detailEl) detailEl.textContent = `${Math.round(percent)}% dokončeno`;
+        if (barEl) barEl.style.width = `${percent}%`;
+        
+        // Update frame counters if data provided
+        if (data && data.current_frame && data.total_frames) {
+            const frameCounterEl = document.getElementById(`frame-counter-${jobId}`);
+            const frameProgressEl = document.getElementById(`frame-progress-${jobId}`);
+            const detectedFramesEl = document.getElementById(`detected-frames-${jobId}`);
+            
+            if (frameCounterEl) frameCounterEl.classList.remove('hidden');
+            if (frameProgressEl) frameProgressEl.textContent = `${data.current_frame} / ${data.total_frames}`;
+            if (detectedFramesEl) detectedFramesEl.textContent = data.detected_frames || 0;
+        }
+    }
 
     // Click to upload
     uploadContainer.addEventListener('click', () => fileInput.click());
@@ -1426,7 +1478,13 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        selectedFiles = [...selectedFiles, ...validFiles];
+        // Add jobId to each file
+        const filesWithJobId = validFiles.map(file => ({
+            file: file,
+            jobId: generateUUID()
+        }));
+
+        selectedFiles = [...selectedFiles, ...filesWithJobId];
         updateFileList();
         fileList.classList.remove('hidden');
         startProcessing.disabled = false;
@@ -1434,7 +1492,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function updateFileList() {
         filesContainer.innerHTML = '';
-        selectedFiles.forEach((file, index) => {
+        selectedFiles.forEach((fileObj, index) => {
+            const file = fileObj.file; // Extract the File object
             const fileItem = document.createElement('div');
             fileItem.className = 'flex items-center justify-between p-4 bg-gray-50 dark:bg-slate-700 rounded-lg fade-in';
             fileItem.innerHTML = `
@@ -1481,34 +1540,35 @@ document.addEventListener('DOMContentLoaded', function() {
         if (selectedFiles.length === 0) return;
         
         startProcessing.disabled = true;
-        progressToast.classList.remove('hidden');
         resultsSection.classList.remove('hidden');
         
-        selectedFiles.forEach(file => uploadAndProcess(file));
+        // Create individual progress toasts for each file
+        selectedFiles.forEach(file => {
+            const jobId = file.jobId;
+            createProgressToast(jobId, file.file.name);
+            uploadAndProcess(file);
+        });
     });
 
-    async function uploadAndProcess(file) {
+    async function uploadAndProcess(fileObj) {
         // Start heartbeat for long uploads
         startHeartbeat();
         
-        // Reset stats when starting new upload
-        document.getElementById('frame-counter').classList.add('hidden');
-        document.getElementById('frame-progress').textContent = '0 / 0';
-        document.getElementById('detected-frames').textContent = '0';
+        const file = fileObj.file;
+        const jobId = fileObj.jobId;
         
-        document.getElementById('upload-stats').classList.add('hidden');
-        document.getElementById('upload-size').textContent = '0 MB / 0 MB';
-        document.getElementById('upload-speed').textContent = '0 MB/s';
-        document.getElementById('upload-eta').textContent = '0s';
+        // Update progress toast for this specific file
+        updateIndividualProgress(jobId, 'Nahrávám soubor...', 0);
         
-        const jobId = await chunkedUpload(file);
-        if (!jobId) {
+        const uploadJobId = await chunkedUpload(file, jobId);
+        if (!uploadJobId) {
             stopHeartbeat();
+            updateIndividualProgress(jobId, 'Chyba při nahrávání!', 0);
             return; // Upload failed
         }
         
         try {
-            updateProgress(`Zpracovávám ${file.name}`, 30);
+            updateIndividualProgress(jobId, `Zpracovávám ${file.name}`, 30);
             
             // Start processing
             const processResponse = await fetch('/process', {
@@ -1528,7 +1588,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    async function chunkedUpload(file) {
+    async function chunkedUpload(file, jobId) {
         const CHUNK_SIZE = 1024 * 1024; // 1MB chunks
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
         const startTime = Date.now();
@@ -1682,20 +1742,35 @@ document.addEventListener('DOMContentLoaded', function() {
                 activeJobs[jobId].current_frame = data.current_frame;
                 activeJobs[jobId].total_frames = data.total_frames;
                 
-                // Update aggregated progress for all active jobs
-                updateAggregatedProgress();
+                // Update individual progress toast
+                updateIndividualProgress(jobId, data.message, data.progress, {
+                    current_frame: data.current_frame,
+                    total_frames: data.total_frames,
+                    detected_frames: data.detected_frames
+                });
                 
                 if (data.status === 'completed') {
                     clearInterval(pollInterval);
                     activeJobs[jobId].status = 'completed';
                     activeJobs[jobId].progress = 100;
-                    updateAggregatedProgress(); // Update before adding result
+                    
+                    // Show completion in individual progress toast
+                    updateIndividualProgress(jobId, 'Analýza dokončena úspěšně!', 100);
+                    
+                    // Auto-hide completed toast after 5 seconds
+                    setTimeout(() => {
+                        removeProgressToast(jobId);
+                    }, 5000);
+                    
                     addResult(jobId, data.results);
                     checkAllJobsCompleted();
                 } else if (data.status === 'error') {
                     clearInterval(pollInterval);
                     activeJobs[jobId].status = 'error';
-                    updateAggregatedProgress();
+                    
+                    // Show error in individual progress toast
+                    updateIndividualProgress(jobId, 'Chyba při zpracování!', 0);
+                    
                     showError(data.message);
                     checkAllJobsCompleted();
                 } else if (pollCount >= maxPolls) {
@@ -1769,93 +1844,16 @@ document.addEventListener('DOMContentLoaded', function() {
             // Show completion message
             const completedCount = Object.values(activeJobs).filter(job => job.status === 'completed').length;
             const totalCount = Object.keys(activeJobs).length;
-            updateProgress(`Všechno dokončeno! (${completedCount}/${totalCount} úspěšně)`, 100);
+            console.log(`Všechno dokončeno! (${completedCount}/${totalCount} úspěšně)`);
             
             // Stop heartbeat when all jobs complete
             stopHeartbeat();
             
-            // Hide progress toast after a brief delay to show completion
-            setTimeout(() => {
-                progressToast.classList.add('hidden');
-            }, 3000); // Hide after 3 seconds
+            // Re-enable start processing button
             startProcessing.disabled = false;
         }
     }
 
-    function updateProgress(message, percent, data = null) {
-        document.getElementById('progress-title').textContent = message;
-        document.getElementById('progress-detail').textContent = `${Math.round(percent)}% dokončeno`;
-        document.getElementById('progress-bar').style.width = `${percent}%`;
-    }
-    
-    function updateAggregatedProgress() {
-        const processingJobs = Object.values(activeJobs).filter(job => 
-            job.status === 'processing' || job.status === 'queued'
-        );
-        
-        if (processingJobs.length === 0) return;
-        
-        // Calculate average progress
-        const totalProgress = processingJobs.reduce((sum, job) => sum + (job.progress || 0), 0);
-        const avgProgress = Math.round(totalProgress / processingJobs.length);
-        
-        // Create aggregated message
-        let message;
-        if (processingJobs.length === 1) {
-            message = processingJobs[0].message || 'Zpracovávám...';
-        } else {
-            const completedCount = Object.values(activeJobs).filter(job => job.status === 'completed').length;
-            const totalCount = Object.keys(activeJobs).length;
-            message = `Zpracovávám ${processingJobs.length} souborů (${completedCount}/${totalCount} hotovo)`;
-        }
-        
-        updateProgress(message, avgProgress);
-        
-        // Format bytes for display
-        function formatBytesSimple(bytes) {
-            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-            return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-        }
-        
-        // Format time for display
-        function formatTimeSimple(seconds) {
-            if (isNaN(seconds) || seconds === Infinity) return "počítám...";
-            if (seconds < 60) return `${Math.round(seconds)}s`;
-            const minutes = Math.floor(seconds / 60);
-            const remainingSeconds = Math.round(seconds % 60);
-            return `${minutes}m ${remainingSeconds}s`;
-        }
-        
-        // Hide both sections initially
-        document.getElementById('upload-stats').classList.add('hidden');
-        document.getElementById('frame-counter').classList.add('hidden');
-        
-        // Update upload stats if in upload phase
-        if (data && data.upload_phase) {
-            const uploadStats = document.getElementById('upload-stats');
-            uploadStats.classList.remove('hidden');
-            
-            document.getElementById('upload-size').textContent = 
-                `${formatBytesSimple(data.uploaded_bytes || 0)} / ${formatBytesSimple(data.total_bytes || 0)}`;
-            
-            document.getElementById('upload-speed').textContent = 
-                `${formatBytesSimple(data.upload_speed || 0)}/s`;
-            
-            document.getElementById('upload-eta').textContent = 
-                formatTimeSimple(data.eta_seconds || 0);
-        }
-        // Update frame counter if we have frame data
-        else if (data && data.total_frames > 0) {
-            const frameCounter = document.getElementById('frame-counter');
-            frameCounter.classList.remove('hidden');
-            
-            document.getElementById('frame-progress').textContent = 
-                `${data.current_frame} / ${data.total_frames}`;
-            
-            document.getElementById('detected-frames').textContent = 
-                data.detected_frames || 0;
-        }
-    }
 
     function showError(message) {
         // Add error notification
