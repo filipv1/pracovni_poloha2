@@ -2509,25 +2509,37 @@ def download_result(job_id, file_type):
     if 'username' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
         
-    if job_id not in active_jobs:
+    # Use persistent storage instead of memory cache (same as email downloads)
+    job = load_job(job_id)
+    if not job:
         return jsonify({'error': 'Job not found'}), 404
-        
-    job = active_jobs[job_id]
     
     if job['status'] != 'completed':
         return jsonify({'error': 'Processing not completed'}), 400
         
     try:
+        # Debug logging
+        logger.info(f"Download request - job_id: {job_id}, file_type: {file_type}")
+        logger.info(f"Job keys: {list(job.keys())}")
+        logger.info(f"Job status: {job.get('status')}")
+        
         if file_type == 'video':
+            if 'output_video' not in job:
+                logger.error(f"Missing output_video in job {job_id}: {job}")
+                return jsonify({'error': 'Video file not available'}), 404
             filepath = job['output_video']
             filename = f"{Path(job['original_name']).stem}_analyzed.mp4"
         elif file_type == 'excel':
+            if 'output_excel' not in job:
+                logger.error(f"Missing output_excel in job {job_id}: {job}")
+                return jsonify({'error': 'Excel file not available'}), 404
             filepath = job['output_excel']
             filename = f"{Path(job['original_name']).stem}_report.xlsx"
         else:
             return jsonify({'error': 'Invalid file type'}), 400
             
-        if not os.path.exists(filepath):
+        if not filepath or not os.path.exists(filepath):
+            logger.error(f"File not found: {filepath}")
             return jsonify({'error': 'File not found'}), 404
             
         log_user_action(session['username'], 'file_download', f'Downloaded: {filename}')
