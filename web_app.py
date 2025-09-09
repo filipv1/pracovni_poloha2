@@ -953,6 +953,27 @@ BASE_TEMPLATE = """
     {% block content %}{% endblock %}
     
     <script>
+        // Generate secure download link using token system (same as emails)
+        async function generateDownloadLink(jobId, fileType) {
+            try {
+                console.log(`Generating download link for job ${jobId}, type ${fileType}`);
+                const response = await fetch(`/api/generate-download-token/${jobId}/${fileType}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert(`Error: ${data.error}`);
+                    return;
+                }
+                
+                console.log('Download URL generated:', data.download_url);
+                // Open download link in new tab
+                window.open(data.download_url, '_blank');
+            } catch (error) {
+                console.error('Download error:', error);
+                alert('Chyba při generování download linku');
+            }
+        }
+        
         // Dark mode toggle
         function initDarkMode() {
             const theme = localStorage.getItem('theme') || 'light';
@@ -1637,25 +1658,6 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Chunked upload failed:', error);
             showError(`Chyba při nahrávání ${file.name}: ${error.message}`);
             return null;
-        }
-    }
-
-    // Generate secure download link using token system (same as emails)
-    async function generateDownloadLink(jobId, fileType) {
-        try {
-            const response = await fetch(`/api/generate-download-token/${jobId}/${fileType}`);
-            const data = await response.json();
-            
-            if (data.error) {
-                alert(`Error: ${data.error}`);
-                return;
-            }
-            
-            // Open download link in new tab
-            window.open(data.download_url, '_blank');
-        } catch (error) {
-            console.error('Download error:', error);
-            alert('Chyba při generování download linku');
         }
     }
 
