@@ -2271,6 +2271,8 @@ def monitor_progress_file(job_id, progress_file, process):
     job = active_jobs[job_id]
     last_update = 0
     
+    logger.info(f"Starting progress monitoring for job {job_id}, progress file: {progress_file}")
+    
     try:
         while process.poll() is None:  # While process is running
             if os.path.exists(progress_file):
@@ -2308,9 +2310,11 @@ def monitor_progress_file(job_id, progress_file, process):
 def process_video_async(job_id):
     """Asynchronní zpracování videa"""
     try:
+        logger.info(f"Starting async video processing for job {job_id}")
         job = active_jobs[job_id]
         input_path = job['filepath']
         original_name = job['original_name']
+        logger.info(f"Processing {original_name}, input path: {input_path}")
         
         # Generate output paths
         base_name = Path(original_name).stem
@@ -2498,10 +2502,13 @@ def get_job_status(job_id):
     if 'username' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
         
-    # Load job from persistent storage
-    job = load_job(job_id)
-    if not job:
-        return jsonify({'error': 'Job not found'}), 404
+    # Use in-memory cache first for active progress, fallback to disk
+    if job_id in active_jobs:
+        job = active_jobs[job_id]
+    else:
+        job = load_job(job_id)
+        if not job:
+            return jsonify({'error': 'Job not found'}), 404
     
     response_data = {
         'status': job.get('status', 'unknown'),
