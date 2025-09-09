@@ -1640,6 +1640,25 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // Generate secure download link using token system (same as emails)
+    async function generateDownloadLink(jobId, fileType) {
+        try {
+            const response = await fetch(`/api/generate-download-token/${jobId}/${fileType}`);
+            const data = await response.json();
+            
+            if (data.error) {
+                alert(`Error: ${data.error}`);
+                return;
+            }
+            
+            // Open download link in new tab
+            window.open(data.download_url, '_blank');
+        } catch (error) {
+            console.error('Download error:', error);
+            alert('Chyba při generování download linku');
+        }
+    }
+
     function monitorJob(jobId) {
         let pollInterval;
         let pollCount = 0;
@@ -1716,18 +1735,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 </div>
                 <div class="flex space-x-2">
-                    <a href="/download/${jobId}/video" class="btn btn-sm btn-primary">
+                    <button onclick="generateDownloadLink('${jobId}', 'video')" class="btn btn-sm btn-primary">
                         <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path>
                         </svg>
                         Video
-                    </a>
-                    <a href="/download/${jobId}/excel" class="btn btn-sm btn-success">
+                    </button>
+                    <button onclick="generateDownloadLink('${jobId}', 'excel')" class="btn btn-sm btn-success">
                         <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path>
                         </svg>
                         Excel
-                    </a>
+                    </button>
                 </div>
             </div>
         `;
@@ -2503,51 +2522,63 @@ def get_job_status(job_id):
     logger.debug(f"Status poll for job {job_id}: {response_data}")
     return jsonify(response_data)
 
-@app.route('/download/<job_id>/<file_type>')
-def download_result(job_id, file_type):
-    """Download processed files"""
+@app.route('/api/generate-download-token/<job_id>/<file_type>')
+def generate_download_token_api(job_id, file_type):
+    """Generate secure download token for job files"""
     if 'username' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
-        
-    # Use persistent storage instead of memory cache (same as email downloads)
+    
+    # Load job data
     job = load_job(job_id)
     if not job:
         return jsonify({'error': 'Job not found'}), 404
     
     if job['status'] != 'completed':
         return jsonify({'error': 'Processing not completed'}), 400
-        
+    
     try:
-        # Debug logging
-        logger.info(f"Download request - job_id: {job_id}, file_type: {file_type}")
-        logger.info(f"Job keys: {list(job.keys())}")
-        logger.info(f"Job status: {job.get('status')}")
+        # Find the correct filename based on file type
+        filename = None
         
         if file_type == 'video':
-            if 'output_video' not in job:
-                logger.error(f"Missing output_video in job {job_id}: {job}")
-                return jsonify({'error': 'Video file not available'}), 404
-            filepath = job['output_video']
-            filename = f"{Path(job['original_name']).stem}_analyzed.mp4"
+            # Try old format first
+            if 'output_video' in job:
+                filename = os.path.basename(job['output_video'])
+            # Fallback to new format
+            elif 'files' in job and isinstance(job['files'], list):
+                for file_obj in job['files']:
+                    if 'video' in file_obj:
+                        filename = os.path.basename(file_obj['video'])
+                        break
+        
         elif file_type == 'excel':
-            if 'output_excel' not in job:
-                logger.error(f"Missing output_excel in job {job_id}: {job}")
-                return jsonify({'error': 'Excel file not available'}), 404
-            filepath = job['output_excel']
-            filename = f"{Path(job['original_name']).stem}_report.xlsx"
-        else:
-            return jsonify({'error': 'Invalid file type'}), 400
-            
-        if not filepath or not os.path.exists(filepath):
-            logger.error(f"File not found: {filepath}")
-            return jsonify({'error': 'File not found'}), 404
-            
-        log_user_action(session['username'], 'file_download', f'Downloaded: {filename}')
-        return send_file(filepath, as_attachment=True, download_name=filename)
+            # Try old format first
+            if 'output_excel' in job:
+                filename = os.path.basename(job['output_excel'])
+            # Fallback to new format
+            elif 'files' in job and isinstance(job['files'], list):
+                for file_obj in job['files']:
+                    if 'report' in file_obj:
+                        filename = os.path.basename(file_obj['report'])
+                        break
+        
+        if not filename:
+            return jsonify({'error': f'{file_type.title()} file not available'}), 404
+        
+        # Generate secure token using email service
+        token = email_service.generate_download_token(job_id, filename)
+        download_url = f"https://pracpol2-production.up.railway.app/download/token/{token}"
+        
+        return jsonify({
+            'download_url': download_url,
+            'filename': filename
+        })
         
     except Exception as e:
-        logger.error(f"Download error: {str(e)}")
+        logger.error(f"Token generation error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+# Note: Old download endpoint removed - now using secure token system
 
 @app.route('/download/token/<token>')
 def download_with_token(token):
