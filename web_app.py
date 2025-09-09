@@ -1676,21 +1676,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 const data = await response.json();
                 console.log(`Poll ${pollCount}: Job ${jobId}`, data);
                 
-                // Pass frame data if available
-                updateProgress(data.message, data.progress, {
-                    current_frame: data.current_frame,
-                    total_frames: data.total_frames,
-                    detected_frames: data.detected_frames,
-                    bend_frames: data.bend_frames,
-                    failed_detections: data.failed_detections
-                });
+                // Update individual job progress
+                activeJobs[jobId].progress = data.progress;
+                activeJobs[jobId].message = data.message;
+                activeJobs[jobId].current_frame = data.current_frame;
+                activeJobs[jobId].total_frames = data.total_frames;
+                
+                // Update aggregated progress for all active jobs
+                updateAggregatedProgress();
                 
                 if (data.status === 'completed') {
                     clearInterval(pollInterval);
+                    activeJobs[jobId].status = 'completed';
+                    activeJobs[jobId].progress = 100;
+                    updateAggregatedProgress(); // Update before adding result
                     addResult(jobId, data.results);
                     checkAllJobsCompleted();
                 } else if (data.status === 'error') {
                     clearInterval(pollInterval);
+                    activeJobs[jobId].status = 'error';
+                    updateAggregatedProgress();
                     showError(data.message);
                     checkAllJobsCompleted();
                 } else if (pollCount >= maxPolls) {
@@ -1761,6 +1766,11 @@ document.addEventListener('DOMContentLoaded', function() {
         );
         
         if (allCompleted) {
+            // Show completion message
+            const completedCount = Object.values(activeJobs).filter(job => job.status === 'completed').length;
+            const totalCount = Object.keys(activeJobs).length;
+            updateProgress(`Všechno dokončeno! (${completedCount}/${totalCount} úspěšně)`, 100);
+            
             // Stop heartbeat when all jobs complete
             stopHeartbeat();
             
@@ -1776,6 +1786,30 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('progress-title').textContent = message;
         document.getElementById('progress-detail').textContent = `${Math.round(percent)}% dokončeno`;
         document.getElementById('progress-bar').style.width = `${percent}%`;
+    }
+    
+    function updateAggregatedProgress() {
+        const processingJobs = Object.values(activeJobs).filter(job => 
+            job.status === 'processing' || job.status === 'queued'
+        );
+        
+        if (processingJobs.length === 0) return;
+        
+        // Calculate average progress
+        const totalProgress = processingJobs.reduce((sum, job) => sum + (job.progress || 0), 0);
+        const avgProgress = Math.round(totalProgress / processingJobs.length);
+        
+        // Create aggregated message
+        let message;
+        if (processingJobs.length === 1) {
+            message = processingJobs[0].message || 'Zpracovávám...';
+        } else {
+            const completedCount = Object.values(activeJobs).filter(job => job.status === 'completed').length;
+            const totalCount = Object.keys(activeJobs).length;
+            message = `Zpracovávám ${processingJobs.length} souborů (${completedCount}/${totalCount} hotovo)`;
+        }
+        
+        updateProgress(message, avgProgress);
         
         // Format bytes for display
         function formatBytesSimple(bytes) {
