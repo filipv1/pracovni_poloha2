@@ -1568,19 +1568,21 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         try {
-            updateIndividualProgress(jobId, `Zpracovávám ${file.name}`, 30);
+            // Use the server job ID for all further operations
+            const serverJobId = uploadJobId;
+            updateIndividualProgress(serverJobId, `Zpracovávám ${file.name}`, 30);
             
             // Start processing
             const processResponse = await fetch('/process', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ job_id: jobId })
+                body: JSON.stringify({ job_id: serverJobId })
             });
             
             if (!processResponse.ok) throw new Error('Processing failed');
             
             // Monitor progress
-            monitorJob(jobId);
+            monitorJob(serverJobId);
             
         } catch (error) {
             console.error('Error:', error);
@@ -1626,12 +1628,17 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             const { job_id, chunk_size, total_chunks } = await initResponse.json();
-            activeJobs[job_id] = { file: file.name, status: 'uploading', originalFile: file };
+            const serverJobId = job_id;
+            activeJobs[serverJobId] = { file: file.name, status: 'uploading', originalFile: file };
+            
+            // Update the progress toast to use the correct server job_id
+            removeProgressToast(jobId);
+            createProgressToast(serverJobId, file.name);
             
             // Check for existing upload to resume
             let uploadedChunks = new Set();
             try {
-                const resumeResponse = await fetch(`/upload/resume/${job_id}`);
+                const resumeResponse = await fetch(`/upload/resume/${serverJobId}`);
                 if (resumeResponse.ok) {
                     const resumeData = await resumeResponse.json();
                     if (resumeData.uploaded_chunks) {
@@ -1664,7 +1671,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const progress = Math.round((chunkIndex / total_chunks) * 25); // Upload is 0-25% of total progress
                 const uploadMessage = `Nahrávám: ${formatBytes(uploadedBytes)} / ${formatBytes(file.size)} (${formatBytes(uploadSpeed)}/s) - zbývá ${formatTime(eta)}`;
                 
-                updateProgress(uploadMessage, progress, {
+                updateIndividualProgress(serverJobId, uploadMessage, progress, {
                     upload_phase: true,
                     uploaded_bytes: uploadedBytes,
                     total_bytes: file.size,
@@ -1678,7 +1685,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 while (retryCount < maxRetries) {
                     try {
-                        const chunkResponse = await fetch(`/upload/chunk/${job_id}/${chunkIndex}`, {
+                        const chunkResponse = await fetch(`/upload/chunk/${serverJobId}/${chunkIndex}`, {
                             method: 'POST',
                             body: chunk
                         });
@@ -1711,8 +1718,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // Final upload stats
             const totalTime = (Date.now() - startTime) / 1000;
             const avgSpeed = file.size / totalTime;
-            updateProgress(`Upload dokončen: ${formatBytes(file.size)} za ${formatTime(totalTime)} (průměr ${formatBytes(avgSpeed)}/s)`, 25);
-            return job_id;
+            updateIndividualProgress(serverJobId, `Upload dokončen: ${formatBytes(file.size)} za ${formatTime(totalTime)} (průměr ${formatBytes(avgSpeed)}/s)`, 25);
+            return serverJobId;
             
         } catch (error) {
             console.error('Chunked upload failed:', error);
