@@ -11,7 +11,7 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
-print("EMERGENCY FIX: Aktivován")
+print("EMERGENCY FIX: Activated")
 
 # 1. AGRESIVNÍ GARBAGE COLLECTION
 gc.set_threshold(100, 5, 5)
@@ -38,7 +38,7 @@ def emergency_cleanup():
                 pass
     
     mb_freed = total_freed / 1024 / 1024
-    print(f"EMERGENCY CLEANUP: Uvolněno {mb_freed:.2f} MB")
+    print(f"EMERGENCY CLEANUP: Freed {mb_freed:.2f} MB")
     return mb_freed
 
 # 3. PERIODICKÉ ČIŠTĚNÍ KAŽDOU HODINU
@@ -55,4 +55,4 @@ emergency_cleanup()
 cleanup_thread = threading.Thread(target=periodic_emergency_cleanup, daemon=True)
 cleanup_thread.start()
 
-print("EMERGENCY FIX: Běží - čištění každou hodinu")
+print("EMERGENCY FIX: Running - cleanup every hour")

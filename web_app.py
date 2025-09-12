@@ -819,43 +819,64 @@ else:
             try:
                 # Čeká na email úlohu v queue (timeout 30s)
                 email_task = email_queue.get(timeout=30)
-            
-            if email_task is None:  # Shutdown signal
-                logger.info("Email worker received shutdown signal")
-                break
                 
-            job_data = email_task.get('job_data')
-            retry_count = email_task.get('retry_count', 0)
-            job_id = job_data.get('id')
-            
-            logger.info(f"Email worker: Processing job {job_id}, attempt {retry_count + 1}")
-            
-            # Pokus o odeslání emailu s aplikačním kontextem a timeoutem
-            try:
-                worker_start_time = time.time()
-                with app.app_context():
-                    success = email_service.send_completion_email(job_data)
-                worker_end_time = time.time()
+                if email_task is None:  # Shutdown signal
+                    logger.info("Email worker received shutdown signal")
+                    break
+                    
+                job_data = email_task.get('job_data')
+                retry_count = email_task.get('retry_count', 0)
+                job_id = job_data.get('id')
                 
-                logger.info(f"Email worker: Email processing completed for job {job_id} in {worker_end_time - worker_start_time:.2f}s, success: {success}")
+                logger.info(f"Email worker: Processing job {job_id}, attempt {retry_count + 1}")
                 
-                if success:
-                    # Email odeslán úspěšně
-                    job_data['email_sent'] = True
-                    job_data['email_sent_at'] = time.time()
-                    save_job(job_id, job_data)
-                    logger.info(f"Email worker: Successfully processed and saved job {job_id}")
-                else:
-                    # Email se nepodařilo odeslat
-                    if retry_count < 2:  # Maximálně 3 pokusy (0, 1, 2)
-                        # Exponential backoff: 30s, 60s, 120s (shorter for faster debugging)
+                # Pokus o odeslání emailu s aplikačním kontextem a timeoutem
+                try:
+                    worker_start_time = time.time()
+                    with app.app_context():
+                        success = email_service.send_completion_email(job_data)
+                    worker_end_time = time.time()
+                
+                    logger.info(f"Email worker: Email processing completed for job {job_id} in {worker_end_time - worker_start_time:.2f}s, success: {success}")
+                    
+                    if success:
+                        # Email odeslán úspěšně
+                        job_data['email_sent'] = True
+                        job_data['email_sent_at'] = time.time()
+                        save_job(job_id, job_data)
+                        logger.info(f"Email worker: Successfully processed and saved job {job_id}")
+                    else:
+                        # Email se nepodařilo odeslat
+                        if retry_count < 2:  # Maximálně 3 pokusy (0, 1, 2)
+                            # Exponential backoff: 30s, 60s, 120s (shorter for faster debugging)
+                            retry_delay = 30 * (2 ** retry_count)
+                            logger.warning(f"Email worker: Job {job_id} failed, scheduling retry {retry_count + 2}/3 in {retry_delay}s")
+                            
+                            # Zaplanuj retry
+                            def retry_email():
+                                time.sleep(retry_delay)
+                                logger.info(f"Email worker: Retrying job {job_id} after {retry_delay}s delay")
+                                email_queue.put({
+                                    'job_data': job_data,
+                                    'retry_count': retry_count + 1
+                                })
+                            
+                            Thread(target=retry_email, daemon=True).start()
+                        else:
+                            logger.error(f"Email worker: Job {job_id} permanently failed after 3 attempts")
+                            job_data['email_failed'] = True
+                            job_data['email_failed_at'] = time.time()
+                            save_job(job_id, job_data)
+                            
+                except Exception as email_error:
+                    logger.error(f"Email worker: Error processing job {job_id}: {type(email_error).__name__}: {email_error}")
+                    # This counts as a failure, will be retried if retries remain
+                    if retry_count < 2:
                         retry_delay = 30 * (2 ** retry_count)
-                        logger.warning(f"Email worker: Job {job_id} failed, scheduling retry {retry_count + 2}/3 in {retry_delay}s")
+                        logger.warning(f"Email worker: Exception for job {job_id}, scheduling retry in {retry_delay}s")
                         
-                        # Zaplanuj retry
                         def retry_email():
                             time.sleep(retry_delay)
-                            logger.info(f"Email worker: Retrying job {job_id} after {retry_delay}s delay")
                             email_queue.put({
                                 'job_data': job_data,
                                 'retry_count': retry_count + 1
@@ -863,40 +884,19 @@ else:
                         
                         Thread(target=retry_email, daemon=True).start()
                     else:
-                        logger.error(f"Email worker: Job {job_id} permanently failed after 3 attempts")
+                        logger.error(f"Email worker: Job {job_id} permanently failed due to exception after 3 attempts")
                         job_data['email_failed'] = True
                         job_data['email_failed_at'] = time.time()
+                        job_data['email_error'] = str(email_error)
                         save_job(job_id, job_data)
-                        
-            except Exception as email_error:
-                logger.error(f"Email worker: Error processing job {job_id}: {type(email_error).__name__}: {email_error}")
-                # This counts as a failure, will be retried if retries remain
-                if retry_count < 2:
-                    retry_delay = 30 * (2 ** retry_count)
-                    logger.warning(f"Email worker: Exception for job {job_id}, scheduling retry in {retry_delay}s")
-                    
-                    def retry_email():
-                        time.sleep(retry_delay)
-                        email_queue.put({
-                            'job_data': job_data,
-                            'retry_count': retry_count + 1
-                        })
-                    
-                    Thread(target=retry_email, daemon=True).start()
-                else:
-                    logger.error(f"Email worker: Job {job_id} permanently failed due to exception after 3 attempts")
-                    job_data['email_failed'] = True
-                    job_data['email_failed_at'] = time.time()
-                    job_data['email_error'] = str(email_error)
-                    save_job(job_id, job_data)
-            
-            email_queue.task_done()
-            
-        except Exception as worker_error:
-            # Ignoruj normální queue timeout chyby (Queue.Empty exception)
-            if "empty" not in str(worker_error).lower() and "timeout" not in str(worker_error).lower():
-                logger.error(f"Email worker: Unexpected error in main loop: {type(worker_error).__name__}: {worker_error}")
-            continue
+                
+                email_queue.task_done()
+                
+            except Exception as worker_error:
+                # Ignoruj normální queue timeout chyby (Queue.Empty exception)
+                if "empty" not in str(worker_error).lower() and "timeout" not in str(worker_error).lower():
+                    logger.error(f"Email worker: Unexpected error in main loop: {type(worker_error).__name__}: {worker_error}")
+                continue
 
     # Spuštění email worker threadu (only for non-optimized version)
     if not (OPTIMIZATIONS_AVAILABLE and os.environ.get('FLASK_ENV') == 'production'):
