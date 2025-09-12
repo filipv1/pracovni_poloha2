@@ -1,1 +1,1 @@
-web: gunicorn web_app:app --timeout 3600 --workers 2 --worker-class sync --bind 0.0.0.0:$PORT --log-level info
+web: gunicorn web_app:app --timeout 3600 --workers 1 --worker-class sync --bind 0.0.0.0:$PORT --log-level info --max-requests 200 --max-requests-jitter 50

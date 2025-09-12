@@ -32,6 +32,20 @@ load_dotenv()
 # Přidání src do Python path pro import modulů
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
+# Emergency fix for high memory usage on Railway
+try:
+    import emergency_fix
+    print("Emergency memory fix activated")
+except ImportError:
+    pass  # Emergency fix not available, continue normally
+
+# Import optimizations if available
+try:
+    from railway_optimizations import optimize_app, OptimizedEmailWorker, CleanupManager, ResourceMonitor
+    OPTIMIZATIONS_AVAILABLE = True
+except ImportError:
+    OPTIMIZATIONS_AVAILABLE = False
+
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'ergonomic-analysis-2025-ultra-secure-key-change-in-production')
 
@@ -76,7 +90,12 @@ mail = Mail(app)
 if os.environ.get('FLASK_ENV') == 'production':
     # Optimalizace pro cloud deployment
     import gc
-    gc.set_threshold(700, 10, 10)  # Aggressive garbage collection
+    gc.set_threshold(500, 5, 5)  # More aggressive garbage collection
+    
+    # Apply Railway optimizations if available
+    if OPTIMIZATIONS_AVAILABLE:
+        resource_monitor, cleanup_manager = optimize_app(app)
+        logger.info("Railway optimizations applied")
 
 # Whitelist uživatelů s email podporou
 WHITELIST_USERS = {
@@ -738,7 +757,11 @@ def get_uploaded_chunks(job_id):
 def cleanup_old_sessions():
     """Clean up old upload sessions and incomplete files"""
     try:
-        cutoff_time = datetime.now() - timedelta(hours=24)  # Remove sessions older than 24 hours
+        # More aggressive cleanup in production
+        if os.environ.get('FLASK_ENV') == 'production':
+            cutoff_time = datetime.now() - timedelta(hours=12)  # 12 hours in production
+        else:
+            cutoff_time = datetime.now() - timedelta(hours=24)  # 24 hours in dev
         to_remove = []
         
         for job_id, job in active_jobs.items():
@@ -780,15 +803,22 @@ def setup_logging():
 logger = setup_logging()
 cleanup_old_sessions()  # Clean up on startup
 
-# Email worker thread
-def email_worker():
-    """Background worker pro zasílání emailů"""
-    logger.info("Email worker started - ready to process emails")
-    
-    while True:
-        try:
-            # Čeká na email úlohu v queue (timeout 30s)
-            email_task = email_queue.get(timeout=30)
+# Email worker thread - Use optimized version if available
+if OPTIMIZATIONS_AVAILABLE and os.environ.get('FLASK_ENV') == 'production':
+    # Use optimized email worker for production
+    optimized_worker = OptimizedEmailWorker(email_queue, email_service, app)
+    optimized_worker.start()
+    logger.info("Using optimized email worker")
+else:
+    # Original email worker
+    def email_worker():
+        """Background worker pro zasílání emailů"""
+        logger.info("Email worker started - ready to process emails")
+        
+        while True:
+            try:
+                # Čeká na email úlohu v queue (timeout 30s)
+                email_task = email_queue.get(timeout=30)
             
             if email_task is None:  # Shutdown signal
                 logger.info("Email worker received shutdown signal")
@@ -868,9 +898,10 @@ def email_worker():
                 logger.error(f"Email worker: Unexpected error in main loop: {type(worker_error).__name__}: {worker_error}")
             continue
 
-# Spuštění email worker threadu
-email_worker_thread = Thread(target=email_worker, daemon=True)
-email_worker_thread.start()
+    # Spuštění email worker threadu (only for non-optimized version)
+    if not (OPTIMIZATIONS_AVAILABLE and os.environ.get('FLASK_ENV') == 'production'):
+        email_worker_thread = Thread(target=email_worker, daemon=True)
+        email_worker_thread.start()
 
 def log_user_action(username, action, details=""):
     """Logování uživatelských akcí"""
