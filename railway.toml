@@ -3,8 +3,9 @@ builder = "NIXPACKS"
 
 [deploy]
 # Nespecifikujeme startCommand - použije se Procfile
-healthcheckPath = "/health"
-healthcheckTimeout = 60
+# Dočasně vypneme healthcheck
+# healthcheckPath = "/health"
+# healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
 autoDeploy = false
 
