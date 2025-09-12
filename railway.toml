@@ -2,9 +2,9 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "python web_app.py"
+# Nespecifikujeme startCommand - použije se Procfile
 healthcheckPath = "/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
 autoDeploy = false
 
